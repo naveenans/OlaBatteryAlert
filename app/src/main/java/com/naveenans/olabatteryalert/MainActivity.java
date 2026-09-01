@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18),dp(24),dp(18),dp(30)); sv.addView(root);
 
         TextView title=text("⚡ OLA Battery Alert",28); title.setTypeface(null,1); root.addView(title);
-        TextView sub=text("Widget host fix • Background monitoring • OCR fallback • Alarm alert",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
+        TextView sub=text("Full widget list • Background monitoring • OCR fallback • Alarm alert",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
 
         LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL); hero.setPadding(dp(18),dp(16),dp(18),dp(16)); hero.setBackground(bg(Color.argb(205,11,18,34),24)); LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2); card.setMargins(0,dp(14),0,dp(10)); root.addView(hero,card);
         TextView small=text("LIVE BATTERY",12); small.setTextColor(Color.rgb(78,235,181)); hero.addView(small);
@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
         TextView wt=text("OLA widget preview",16); wt.setTypeface(null,1); root.addView(wt);
         widgetBox=new LinearLayout(this); widgetBox.setOrientation(LinearLayout.VERTICAL); widgetBox.setPadding(0,dp(8),0,dp(8)); root.addView(widgetBox);
 
-        Button add=button("🔗 Select OLA Widget",Color.rgb(81,73,220)); add.setOnClickListener(v->chooseProvider()); root.addView(add,buttonLp());
+        Button add=button("🔗 Select Widget (Full List)",Color.rgb(81,73,220)); add.setOnClickListener(v->chooseProvider()); root.addView(add,buttonLp());
         Button reload=button("↻ Reload Widget",Color.rgb(0,132,168)); reload.setOnClickListener(v->{ showBoundWidget(); scanDisplayedWidget(); }); root.addView(reload,buttonLp());
         Button scan=button("🔍 Scan Battery Now",Color.rgb(0,156,132)); scan.setOnClickListener(v->scanDisplayedWidget()); root.addView(scan,buttonLp());
         Button monitor=button("▶ Start Background Monitor",Color.rgb(20,132,76)); monitor.setOnClickListener(v->startMonitor(true)); root.addView(monitor,buttonLp());
@@ -70,7 +70,7 @@ public class MainActivity extends Activity {
         Button access=button("🔔 Enable OLA Notification Fallback",Color.rgb(151,82,187)); access.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))); root.addView(access,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("Widget loading fix in v1.2: the app now lists installed widgets directly, requests Android widget-binding permission when required, applies widget size options, and then runs text + OCR battery detection.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v1.3 fix: the selector now shows every widget provider Android reports for the current phone/profile. OLA entries are placed first and clearly marked, but nothing is hidden. The total widget count is shown in the picker title.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -78,35 +78,73 @@ public class MainActivity extends Activity {
     private void requestNotifications(){ if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},900); }
 
     private void chooseProvider(){
-        List<AppWidgetProviderInfo> all=AppWidgetManager.getInstance(this).getInstalledProviders();
-        if(all==null || all.isEmpty()){ Toast.makeText(this,"No widgets installed on this phone",Toast.LENGTH_LONG).show(); return; }
-        Collections.sort(all,(a,b)->score(b)-score(a));
-        final List<AppWidgetProviderInfo> choices=new ArrayList<>();
-        final List<String> labels=new ArrayList<>();
+        List<AppWidgetProviderInfo> installed=AppWidgetManager.getInstance(this).getInstalledProviders();
+        if(installed==null || installed.isEmpty()){
+            Toast.makeText(this,"Android reported no widget providers",Toast.LENGTH_LONG).show();
+            return;
+        }
+
         PackageManager pm=getPackageManager();
-        for(AppWidgetProviderInfo info: all){
-            String pkg=info.provider!=null?info.provider.getPackageName():"";
-            CharSequence label=info.loadLabel(pm);
-            String name=(label==null?"Widget":label.toString());
-            if(pkg.toLowerCase(Locale.US).contains("ola") || name.toLowerCase(Locale.US).contains("ola")){
-                choices.add(info); labels.add("OLA • "+name);
-            }
+        final List<AppWidgetProviderInfo> choices=new ArrayList<>(installed);
+        Collections.sort(choices,(a,b)->{
+            int sa=score(a), sb=score(b);
+            if(sa!=sb) return Integer.compare(sb,sa);
+            String la=providerLabel(a,pm).toLowerCase(Locale.US);
+            String lb=providerLabel(b,pm).toLowerCase(Locale.US);
+            return la.compareTo(lb);
+        });
+
+        final List<String> labels=new ArrayList<>();
+        int olaCount=0;
+        for(AppWidgetProviderInfo info: choices){
+            String pkg=info.provider!=null?info.provider.getPackageName():"unknown.package";
+            String name=providerLabel(info,pm);
+            boolean ola=isOla(info,pm);
+            if(ola) olaCount++;
+            labels.add((ola?"★ OLA  ":"")+name+"\n"+pkg);
         }
-        if(choices.isEmpty()){
-            for(AppWidgetProviderInfo info: all){
-                CharSequence label=info.loadLabel(pm);
-                choices.add(info); labels.add((label==null?"Widget":label.toString())+" • "+info.provider.getPackageName());
-            }
-            Toast.makeText(this,"OLA widget was not identified automatically. Choose it from the full list.",Toast.LENGTH_LONG).show();
-        }
-        new AlertDialog.Builder(this).setTitle("Choose OLA Electric widget")
+
+        final int detectedOla=olaCount;
+        AlertDialog dlg=new AlertDialog.Builder(this)
+                .setTitle("All widgets: "+choices.size()+"  •  OLA detected: "+detectedOla)
                 .setItems(labels.toArray(new String[0]),(d,which)->beginBind(choices.get(which)))
-                .setNegativeButton("Cancel",null).show();
+                .setNeutralButton("System Widget Picker",(d,w)->openSystemWidgetPicker())
+                .setNegativeButton("Cancel",null)
+                .create();
+        dlg.setOnShowListener(x->Toast.makeText(this,"Showing full widget list: "+choices.size(),Toast.LENGTH_SHORT).show());
+        dlg.show();
+    }
+
+    private String providerLabel(AppWidgetProviderInfo info,PackageManager pm){
+        try{
+            CharSequence label=info.loadLabel(pm);
+            if(label!=null && label.length()>0) return label.toString();
+        }catch(Exception ignored){}
+        if(info.provider!=null) return info.provider.getClassName();
+        return "Widget";
+    }
+
+    private boolean isOla(AppWidgetProviderInfo info,PackageManager pm){
+        String pkg=info.provider==null?"":info.provider.getPackageName();
+        String label=providerLabel(info,pm);
+        String s=(pkg+" "+label).toLowerCase(Locale.US);
+        return s.contains("ola") || s.contains("electric");
+    }
+
+    private void openSystemWidgetPicker(){
+        pendingWidgetId=host.allocateAppWidgetId();
+        Intent i=new Intent(AppWidgetManager.ACTION_APPWIDGET_PICK);
+        i.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,pendingWidgetId);
+        try{
+            startActivityForResult(i,BIND);
+        }catch(Exception e){
+            Toast.makeText(this,"System widget picker is not available on this phone",Toast.LENGTH_LONG).show();
+            cleanupPending();
+        }
     }
 
     private int score(AppWidgetProviderInfo i){
-        String s=((i.provider==null?"":i.provider.getPackageName())+" "+String.valueOf(i.label)).toLowerCase(Locale.US);
-        return s.contains("ola")?100:0;
+        try{return isOla(i,getPackageManager())?100:0;}catch(Exception e){return 0;}
     }
 
     private void beginBind(AppWidgetProviderInfo info){
@@ -138,7 +176,14 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int req,int res,Intent data){
         super.onActivityResult(req,res,data);
         if(req==BIND){
-            if(res==RESULT_OK && pendingInfo!=null) configureOrFinish(pendingInfo); else cleanupPending();
+            if(res==RESULT_OK){
+                if(pendingInfo!=null){ configureOrFinish(pendingInfo); return; }
+                int id=data!=null?data.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,pendingWidgetId):pendingWidgetId;
+                AppWidgetProviderInfo picked=AppWidgetManager.getInstance(this).getAppWidgetInfo(id);
+                pendingWidgetId=id;
+                pendingInfo=picked;
+                if(picked!=null) configureOrFinish(picked); else cleanupPending();
+            } else cleanupPending();
         } else if(req==CONFIG){
             if(res==RESULT_OK) finishWidget(pendingWidgetId,pendingInfo); else cleanupPending();
         }
@@ -159,7 +204,7 @@ public class MainActivity extends Activity {
         getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("widget_id",id).putString("widget_pkg",pkg).putBoolean("monitor",true).apply();
         pendingWidgetId=AppWidgetManager.INVALID_APPWIDGET_ID; pendingInfo=null;
         showBoundWidget(); startMonitor(false); refreshStatus();
-        Toast.makeText(this,"OLA widget connected",Toast.LENGTH_SHORT).show();
+        Toast.makeText(this,"Widget connected: "+pkg,Toast.LENGTH_SHORT).show();
     }
 
     private void cleanupPending(){
@@ -176,7 +221,7 @@ public class MainActivity extends Activity {
         AppWidgetProviderInfo info=mgr.getAppWidgetInfo(id);
         if(info==null){
             getSharedPreferences("prefs",MODE_PRIVATE).edit().remove("widget_id").apply();
-            widgetBox.addView(text("Saved widget binding expired. Tap Select OLA Widget again.",14)); return;
+            widgetBox.addView(text("Saved widget binding expired. Tap Select Widget again.",14)); return;
         }
         mgr.updateAppWidgetOptions(id,widgetOptions(info));
         try{
