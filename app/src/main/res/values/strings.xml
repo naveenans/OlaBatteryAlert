@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">OLA Battery Alert</string>
+    <string name="accessibility_desc">Reads visible battery percentage text from the OLA Electric app or its home-screen widget after you explicitly enable this service. No passwords or hidden app data are collected.</string>
+</resources>
