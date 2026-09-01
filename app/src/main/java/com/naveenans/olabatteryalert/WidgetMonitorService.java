@@ -4,6 +4,7 @@ import android.app.*;
 import android.appwidget.*;
 import android.content.*;
 import android.os.*;
+import android.view.View;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class WidgetMonitorService extends Service {
