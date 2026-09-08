@@ -15,7 +15,6 @@ import java.text.DateFormat;
 import java.util.*;
 
 public class MainActivity extends Activity {
-    private static final int HOST_ID = 41041;
     private static final int PICK = 700, BIND = 701, CONFIG = 702;
     private BatteryWidgetHost host;
     private LinearLayout widgetBox;
@@ -46,7 +45,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         AlertEngine.ensureChannels(this);
         requestNotifications();
-        host = new BatteryWidgetHost(this, HOST_ID);
+        host = HostHolder.host(this);
         getSharedPreferences("prefs", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(prefListen);
         buildUi();
         refreshStatus();
@@ -59,8 +58,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onStart() {
         super.onStart();
-        try { host.startListening(); } catch (Exception ignored) {}
-        showBoundWidget();
+        try { HostHolder.host(this); } catch (Exception ignored) {}
+        if (widgetBox == null || widgetBox.getChildCount() == 0) showBoundWidget();
+        else {
+            View v = widgetBox.getChildAt(0);
+            if (v instanceof BatteryWidgetHostView) HostHolder.setLiveView((BatteryWidgetHostView) v);
+        }
         refreshStatus();
         if (getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("monitor", false)) startMonitor(false);
         live.removeCallbacks(liveScan);
@@ -76,10 +79,7 @@ public class MainActivity extends Activity {
     @Override protected void onStop() {
         live.removeCallbacks(liveScan);
         try { unregisterReceiver(batteryRx); } catch (Exception ignored) {}
-        boolean mon = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("monitor", false);
-        if (!mon) {
-            try { host.stopListening(); } catch (Exception ignored) {}
-        }
+        HostHolder.setLiveView(null);
         super.onStop();
     }
 
@@ -174,7 +174,7 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v1.7: dashboard keeps live percent via widget ping + preference listener. Set refresh interval and theme below. Allow overlay for background OCR.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v1.8: dashboard re-reads the same live widget on your refresh interval. Theme and refresh time are below. Allow overlay so background OCR keeps working when you leave the app.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -300,13 +300,15 @@ public class MainActivity extends Activity {
         try{ mgr.updateAppWidgetOptions(id,widgetOptions()); }catch(Exception ignored){}
         try{
             BatteryWidgetHostView v=(BatteryWidgetHostView)host.createView(this,id,info);
-            v.setListener(p->{ if(p!=null){ AlertEngine.process(this,p,"OLA widget text"); refreshStatus(); } });
+            v.setListener(p->{ if(p!=null){ AlertEngine.process(this,p,"widget-text"); refreshStatus(); } });
+            HostHolder.setLiveView(v);
             int w=getResources().getDisplayMetrics().widthPixels-dp(36);
             int h=dp(210);
             v.setMinimumWidth(w); v.setMinimumHeight(h);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,h); lp.setMargins(0,dp(6),0,dp(6)); widgetBox.addView(v,lp);
-            v.postDelayed(()->{ v.requestLayout(); v.invalidate(); scanWidgetView(v); },2500);
-            v.postDelayed(()->scanWidgetView(v),6000);
+            v.post(() -> { v.requestLayout(); v.invalidate(); scanWidgetView(v); });
+            v.postDelayed(()->scanWidgetView(v),1500);
+            v.postDelayed(()->scanWidgetView(v),4000);
         }catch(Exception e){ widgetBox.addView(text("Widget host error: "+e.getClass().getSimpleName()+": "+e.getMessage(),13)); }
     }
 
@@ -314,10 +316,20 @@ public class MainActivity extends Activity {
     private void scanDisplayedWidget(boolean toast){
         if(widgetBox==null || widgetBox.getChildCount()==0){ if(toast) Toast.makeText(this,"No rendered widget to scan",Toast.LENGTH_SHORT).show(); return; }
         View v=widgetBox.getChildAt(0);
-        if(v instanceof BatteryWidgetHostView) scanWidgetView((BatteryWidgetHostView)v);
+        if(v instanceof BatteryWidgetHostView) {
+            try { v.requestLayout(); v.invalidate(); } catch (Exception ignored) {}
+            scanWidgetView((BatteryWidgetHostView)v);
+        }
         else if(toast) Toast.makeText(this,"No rendered widget to scan",Toast.LENGTH_SHORT).show();
+        SharedPreferences p=getSharedPreferences("prefs",MODE_PRIVATE);
+        long t=p.getLong("last_update",0);
+        int id=p.getInt("widget_id", AppWidgetManager.INVALID_APPWIDGET_ID);
+        if (id != AppWidgetManager.INVALID_APPWIDGET_ID && t > 0 && System.currentTimeMillis() - t > WidgetRefresh.intervalMs(this) * 3L) {
+            showBoundWidget();
+        }
     }
     private void scanWidgetView(BatteryWidgetHostView v){
+        HostHolder.setLiveView(v);
         ScanEngine.scan(v, new ScanEngine.Callback() {
             @Override public void onHit(int pct, String source, float confidence, String raw) {
                 AlertEngine.process(MainActivity.this, pct, source + " · " + Math.round(confidence * 100) + "%");
@@ -329,5 +341,19 @@ public class MainActivity extends Activity {
 
     private void startMonitor(boolean toast){ getSharedPreferences("prefs",MODE_PRIVATE).edit().putBoolean("monitor",true).apply(); try{ Intent i=new Intent(this,WidgetMonitorService.class); if(Build.VERSION.SDK_INT>=26)startForegroundService(i); else startService(i); if(toast)Toast.makeText(this,"Background monitor running",Toast.LENGTH_SHORT).show(); }catch(Exception e){ if(toast)Toast.makeText(this,"Could not start monitor: "+e.getMessage(),Toast.LENGTH_LONG).show(); } refreshStatus(); }
 
-    private void refreshStatus(){ SharedPreferences p=getSharedPreferences("prefs",MODE_PRIVATE); int pct=p.getInt("last_pct",-1); long t=p.getLong("last_update",0); String src=p.getString("last_source","none"); boolean mon=p.getBoolean("monitor",false); String when=t==0?"Never":DateFormat.getDateTimeInstance().format(new Date(t)); if(batteryBig!=null)batteryBig.setText(pct<0?"—":pct+"%"); if(status!=null)status.setText("Monitor: "+(mon?"RUNNING":"STOPPED")+"\nLast update: "+when+"\nSource: "+src); }
+    private void refreshStatus(){
+        SharedPreferences p=getSharedPreferences("prefs",MODE_PRIVATE);
+        int pct=p.getInt("last_pct",-1);
+        long t=p.getLong("last_update",0);
+        String src=p.getString("last_source","none");
+        boolean mon=p.getBoolean("monitor",false);
+        String when;
+        if (t==0) when="waiting for first scan";
+        else {
+            long ago = Math.max(0, (System.currentTimeMillis()-t)/1000);
+            when = ago < 5 ? "just now" : ago + "s ago";
+        }
+        if(batteryBig!=null)batteryBig.setText(pct<0?"—":pct+"%");
+        if(status!=null)status.setText("Live "+pct+"%  ·  refresh "+(WidgetRefresh.intervalMs(this)/1000)+"s\nMonitor: "+(mon?"RUNNING":"STOPPED")+"  ·  "+when+"\nSource: "+src);
+    }
 }

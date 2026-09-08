@@ -10,34 +10,26 @@ import android.view.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class WidgetMonitorService extends Service {
-    private static final int HOST_ID = 41041;
-    private static final long SCAN_MS = 1500L;
-    private static final long SCAN_CHARGING_MS = 800L;
-    private BatteryWidgetHost host;
-    private BatteryWidgetHostView hostedView;
+    private BatteryWidgetHostView overlayView;
     private WindowManager windowManager;
     private boolean overlayAttached;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final AtomicBoolean scanBusy = new AtomicBoolean(false);
-    private int lastPct = -1;
 
     private final Runnable scanner = new Runnable() {
         @Override public void run() {
             WidgetRefresh.ping(WidgetMonitorService.this);
             scanNow();
             int base = WidgetRefresh.intervalMs(WidgetMonitorService.this);
-            int limit = getSharedPreferences("prefs", MODE_PRIVATE).getInt("limit", 80);
-            int pct = getSharedPreferences("prefs", MODE_PRIVATE).getInt("last_pct", -1);
-            long delay = (pct >= 0 && pct >= limit - 8) ? Math.min(base, SCAN_CHARGING_MS) : base;
-            handler.postDelayed(this, delay);
+            handler.postDelayed(this, base);
         }
     };
 
     @Override public void onCreate() {
         super.onCreate();
         AlertEngine.ensureChannels(this);
-        startForeground(4104, monitorNotification("Realtime widget scan running"));
-        attachWidget();
+        HostHolder.host(this);
+        startForeground(4104, monitorNotification("Live widget refresh running"));
         handler.post(scanner);
     }
 
@@ -55,46 +47,38 @@ public class WidgetMonitorService extends Service {
                 .build();
     }
 
-    private void attachWidget() {
+    private BatteryWidgetHostView targetView() {
+        BatteryWidgetHostView live = HostHolder.liveView();
+        if (live != null) return live;
+        return overlayView;
+    }
+
+    private void ensureOverlay() {
+        if (HostHolder.liveView() != null) {
+            detachOverlay();
+            return;
+        }
+        if (overlayView != null && overlayAttached) return;
         int id = getSharedPreferences("prefs", MODE_PRIVATE).getInt("widget_id", AppWidgetManager.INVALID_APPWIDGET_ID);
         if (id == AppWidgetManager.INVALID_APPWIDGET_ID) return;
-        if (host == null) {
-            host = new BatteryWidgetHost(this, HOST_ID);
-            try { host.startListening(); } catch (Exception ignored) {}
-        }
         AppWidgetProviderInfo info = AppWidgetManager.getInstance(this).getAppWidgetInfo(id);
         if (info == null) return;
+        BatteryWidgetHost host = HostHolder.host(this);
         try { AppWidgetManager.getInstance(this).updateAppWidgetOptions(id, widgetOptions()); } catch (Exception ignored) {}
-        if (hostedView == null) {
-            hostedView = (BatteryWidgetHostView) host.createView(this, id, info);
-            hostedView.setListener(pct -> {
+        if (overlayView == null) {
+            overlayView = (BatteryWidgetHostView) host.createView(this, id, info);
+            overlayView.setListener(pct -> {
                 if (pct != null) AlertEngine.process(this, pct, "widget-text");
-                else scanFusion();
             });
         }
         int density = getResources().getDisplayMetrics().densityDpi;
         int w = Math.max(720, info.minWidth * density / 160);
         int h = Math.max(300, info.minHeight * density / 160);
-        hostedView.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+        overlayView.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
-        hostedView.layout(0, 0, w, h);
-        attachOverlay(w, h);
-    }
-
-    private android.os.Bundle widgetOptions() {
-        android.os.Bundle o = new android.os.Bundle();
-        int screenDp = (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density);
-        o.putInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY, AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN);
-        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, Math.max(250, screenDp - 48));
-        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, Math.max(280, screenDp - 24));
-        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 140);
-        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 320);
-        return o;
-    }
-
-    private void attachOverlay(int w, int h) {
-        if (overlayAttached || hostedView == null) return;
+        overlayView.layout(0, 0, w, h);
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
+        if (overlayAttached) return;
         try {
             windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
@@ -108,31 +92,55 @@ public class WidgetMonitorService extends Service {
             lp.gravity = Gravity.TOP | Gravity.START;
             lp.x = 0;
             lp.y = 0;
-            lp.alpha = 0.02f;
-            windowManager.addView(hostedView, lp);
+            lp.alpha = 0.04f;
+            windowManager.addView(overlayView, lp);
             overlayAttached = true;
         } catch (Throwable ignored) {}
     }
 
-    private void scanNow() {
-        if (hostedView == null) {
-            attachWidget();
-            return;
-        }
-        scanFusion();
+    private android.os.Bundle widgetOptions() {
+        android.os.Bundle o = new android.os.Bundle();
+        int screenDp = (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density);
+        o.putInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY, AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN);
+        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, Math.max(250, screenDp - 48));
+        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, Math.max(280, screenDp - 24));
+        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 140);
+        o.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 320);
+        return o;
     }
 
-    private void scanFusion() {
-        if (hostedView == null || !scanBusy.compareAndSet(false, true)) return;
-        handler.postDelayed(() -> scanBusy.set(false), 4000);
-        ScanEngine.scan(hostedView, new ScanEngine.Callback() {
+    private void detachOverlay() {
+        if (!overlayAttached) return;
+        if (windowManager != null && overlayView != null) {
+            try { windowManager.removeView(overlayView); } catch (Throwable ignored) {}
+        }
+        overlayAttached = false;
+    }
+
+    private void scanNow() {
+        BatteryWidgetHostView view = targetView();
+        if (view == null) {
+            ensureOverlay();
+            view = targetView();
+        }
+        if (view == null) return;
+        try {
+            view.requestLayout();
+            view.invalidate();
+        } catch (Throwable ignored) {}
+        scanFusion(view);
+    }
+
+    private void scanFusion(BatteryWidgetHostView view) {
+        if (view == null || !scanBusy.compareAndSet(false, true)) return;
+        handler.postDelayed(() -> scanBusy.set(false), Math.max(2500, WidgetRefresh.intervalMs(this)));
+        ScanEngine.scan(view, new ScanEngine.Callback() {
             @Override public void onHit(int pct, String source, float confidence, String raw) {
                 scanBusy.set(false);
-                lastPct = pct;
                 AlertEngine.process(WidgetMonitorService.this, pct, source + " · " + Math.round(confidence * 100) + "%");
                 try {
-                    NotificationManager nm = getSystemService(NotificationManager.class);
-                    nm.notify(4104, monitorNotification(pct + "% via " + source));
+                    getSystemService(NotificationManager.class)
+                            .notify(4104, monitorNotification(pct + "% · " + source));
                 } catch (Throwable ignored) {}
             }
             @Override public void onMiss(String reason) {
@@ -142,18 +150,13 @@ public class WidgetMonitorService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (hostedView == null) attachWidget();
         return START_STICKY;
     }
 
     @Override public void onDestroy() {
         handler.removeCallbacksAndMessages(null);
-        if (overlayAttached && windowManager != null && hostedView != null) {
-            try { windowManager.removeView(hostedView); } catch (Throwable ignored) {}
-            overlayAttached = false;
-        }
-        if (host != null) try { host.stopListening(); } catch (Exception ignored) {}
-        hostedView = null;
+        detachOverlay();
+        overlayView = null;
         super.onDestroy();
     }
 
