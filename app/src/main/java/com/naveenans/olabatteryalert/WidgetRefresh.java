@@ -1,15 +1,18 @@
 package com.naveenans.olabatteryalert;
 
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProviderInfo;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Bundle;
 
 public final class WidgetRefresh {
     public static final String ACTION_UPDATED = "com.naveenans.olabatteryalert.BATTERY_UPDATED";
-    public static final int DEFAULT_MS = 2000;
+    public static final int DEFAULT_MS = 5 * 60 * 1000;
     private WidgetRefresh() {}
 
     public static SharedPreferences prefs(Context c) {
@@ -17,10 +20,7 @@ public final class WidgetRefresh {
     }
 
     public static int intervalMs(Context c) {
-        int ms = prefs(c).getInt("refresh_ms", DEFAULT_MS);
-        if (ms < 1000) ms = 1000;
-        if (ms > 30000) ms = 30000;
-        return ms;
+        return DEFAULT_MS;
     }
 
     public static String theme(Context c) {
@@ -35,8 +35,6 @@ public final class WidgetRefresh {
         AppWidgetManager mgr = AppWidgetManager.getInstance(c);
         AppWidgetProviderInfo info = mgr.getAppWidgetInfo(id);
         if (info == null || info.provider == null) return;
-
-        // Nudge options so Ola's provider rebuilds RemoteViews (onAppWidgetOptionsChanged).
         try {
             Bundle opts = mgr.getAppWidgetOptions(id);
             if (opts == null) opts = new Bundle();
@@ -52,7 +50,6 @@ public final class WidgetRefresh {
             mgr.updateAppWidgetOptions(id, opts);
             prefs(c).edit().putBoolean("ping_flip", !flip).apply();
         } catch (Throwable ignored) {}
-
         Intent i = new Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE);
         i.setComponent(info.provider);
         i.setPackage(info.provider.getPackageName());
@@ -60,10 +57,31 @@ public final class WidgetRefresh {
         i.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, new int[]{id});
         try { c.sendBroadcast(i); } catch (Throwable ignored) {}
         try { mgr.notifyAppWidgetViewDataChanged(id, android.R.id.list); } catch (Throwable ignored) {}
-        try { mgr.notifyAppWidgetViewDataChanged(id, android.R.id.background); } catch (Throwable ignored) {}
     }
 
     public static void notifyUi(Context c) {
         try { c.sendBroadcast(new Intent(ACTION_UPDATED).setPackage(c.getPackageName())); } catch (Throwable ignored) {}
+    }
+
+    public static void ensureMonitor(Context c) {
+        prefs(c).edit().putBoolean("monitor", true).apply();
+        try {
+            Intent i = new Intent(c, WidgetMonitorService.class);
+            if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i);
+            else c.startService(i);
+        } catch (Throwable ignored) {}
+        schedule(c);
+    }
+
+    public static void schedule(Context c) {
+        try {
+            AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) return;
+            Intent i = new Intent(c, RefreshAlarm.class);
+            PendingIntent pi = PendingIntent.getBroadcast(c, 41, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            long at = System.currentTimeMillis() + DEFAULT_MS;
+            if (Build.VERSION.SDK_INT >= 23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+            else am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
+        } catch (Throwable ignored) {}
     }
 }

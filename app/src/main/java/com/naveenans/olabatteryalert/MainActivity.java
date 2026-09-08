@@ -30,7 +30,7 @@ public class MainActivity extends Activity {
                 scanDisplayedWidget(false);
                 refreshStatus();
             }, 450);
-            live.postDelayed(this, WidgetRefresh.intervalMs(MainActivity.this));
+            live.postDelayed(this, WidgetRefresh.DEFAULT_MS);
         }
     };
     private final BroadcastReceiver batteryRx = new BroadcastReceiver() {
@@ -67,10 +67,11 @@ public class MainActivity extends Activity {
             if (v instanceof BatteryWidgetHostView) HostHolder.setLiveView((BatteryWidgetHostView) v);
         }
         refreshStatus();
-        if (getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("monitor", false)) startMonitor(false);
+        WidgetRefresh.ensureMonitor(this);
         live.removeCallbacks(liveScan);
         live.post(liveScan);
         requestOverlayQuiet();
+        requestUnrestrictedBattery();
         try {
             IntentFilter f = new IntentFilter(WidgetRefresh.ACTION_UPDATED);
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(batteryRx, f, Context.RECEIVER_NOT_EXPORTED);
@@ -107,10 +108,15 @@ public class MainActivity extends Activity {
     private void buildUi(){
         ScrollView sv=new ScrollView(this);
         sv.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR, themeBg()));
+        sv.setFillViewport(true);
+        sv.setSmoothScrollingEnabled(true);
+        sv.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
+        sv.setClipToPadding(false);
+        if (Build.VERSION.SDK_INT >= 21) sv.setNestedScrollingEnabled(true);
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18),dp(24),dp(18),dp(30)); sv.addView(root);
 
         TextView title=text("⚡ OLA Battery Alert",28); title.setTypeface(null,1); root.addView(title);
-        TextView sub=text("Live dashboard refresh • OCR fallback • theme + interval",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
+        TextView sub=text("Always-on monitor · fetch every 5 minutes · advanced OCR",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
 
         LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL); hero.setPadding(dp(18),dp(16),dp(18),dp(16)); hero.setBackground(bg(Color.argb(205,11,18,34),24)); LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2); card.setMargins(0,dp(14),0,dp(10)); root.addView(hero,card);
         TextView small=text("LIVE BATTERY",12); small.setTextColor(accent()); hero.addView(small);
@@ -123,25 +129,8 @@ public class MainActivity extends Activity {
         limitBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){ public void onProgressChanged(SeekBar s,int p,boolean f){ int x=60+p; limitText.setText("Charge alarm at "+x+"%"); getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("limit",x).apply(); } public void onStartTrackingTouch(SeekBar s){} public void onStopTrackingTouch(SeekBar s){} });
 
         LinearLayout refreshCard=new LinearLayout(this); refreshCard.setOrientation(LinearLayout.VERTICAL); refreshCard.setPadding(dp(16),dp(12),dp(16),dp(12)); refreshCard.setBackground(bg(Color.argb(190,11,18,34),22)); root.addView(refreshCard,card);
-        int rms=WidgetRefresh.intervalMs(this);
-        TextView refreshTitle=text("Refresh every "+(rms/1000)+"s",19); refreshTitle.setTypeface(null,1); refreshCard.addView(refreshTitle);
-        LinearLayout row=new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
-        int[] secs=new int[]{1,2,5,10,15,30};
-        for(int sec: secs){
-            Button b=button(sec+"s", sec*1000==rms ? accent() : Color.rgb(40,52,70));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);
-            lp.setMargins(dp(2),dp(6),dp(2),0);
-            final int ms=sec*1000;
-            b.setOnClickListener(v->{
-                getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("refresh_ms", ms).apply();
-                refreshTitle.setText("Refresh every "+sec+"s");
-                live.removeCallbacks(liveScan);
-                live.post(liveScan);
-                startMonitor(false);
-            });
-            row.addView(b, lp);
-        }
-        refreshCard.addView(row);
+        TextView refreshTitle=text("Background fetch · every 5 minutes",19); refreshTitle.setTypeface(null,1); refreshCard.addView(refreshTitle);
+        TextView refreshHint=text("Always running. Exact alarm + foreground service keep reading the Ola widget even when this screen is closed.",13); refreshHint.setTextColor(Color.rgb(186,202,220)); refreshCard.addView(refreshHint);
 
         LinearLayout themeCard=new LinearLayout(this); themeCard.setOrientation(LinearLayout.VERTICAL); themeCard.setPadding(dp(16),dp(12),dp(16),dp(12)); themeCard.setBackground(bg(Color.argb(190,11,18,34),22)); root.addView(themeCard,card);
         TextView themeTitle=text("Theme",19); themeTitle.setTypeface(null,1); themeCard.addView(themeTitle);
@@ -170,13 +159,11 @@ public class MainActivity extends Activity {
         Button advanced=button("☰ Advanced Widget List",Color.rgb(88,63,171)); advanced.setOnClickListener(v->chooseProviderList()); root.addView(advanced,buttonLp());
         Button reset=button("↻ Reset Widget Connection",Color.rgb(0,128,166)); reset.setOnClickListener(v->resetWidget()); root.addView(reset,buttonLp());
         Button scan=button("🔍 Scan Battery Now",Color.rgb(0,156,132)); scan.setOnClickListener(v->scanDisplayedWidget()); root.addView(scan,buttonLp());
-        Button monitor=button("▶ Start Background Monitor",Color.rgb(20,132,76)); monitor.setOnClickListener(v->startMonitor(true)); root.addView(monitor,buttonLp());
-        Button stop=button("■ Stop Background Monitor",Color.rgb(163,58,78)); stop.setOnClickListener(v->{ getSharedPreferences("prefs",MODE_PRIVATE).edit().putBoolean("monitor",false).apply(); stopService(new Intent(this,WidgetMonitorService.class)); refreshStatus(); }); root.addView(stop,buttonLp());
         Button access=button("🔔 Enable OLA Notification Fallback",Color.rgb(151,82,187)); access.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))); root.addView(access,buttonLp());
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v1.9: each refresh nudges the Ola widget to rebuild, then OCR reads the new percent into this dashboard.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v2.0: background monitor always on. Data fetch every 5 minutes with multi-pass OCR (upsample, adaptive threshold, region vote).",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -280,7 +267,7 @@ public class MainActivity extends Activity {
         String pkg=info.provider==null?"":info.provider.getPackageName();
         getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("widget_id",id).putString("widget_pkg",pkg).putBoolean("monitor",true).apply();
         pendingWidgetId=AppWidgetManager.INVALID_APPWIDGET_ID; pendingInfo=null;
-        showBoundWidget(); startMonitor(false); refreshStatus();
+        showBoundWidget(); WidgetRefresh.ensureMonitor(this); refreshStatus();
         Toast.makeText(this,"Widget connected: "+pkg,Toast.LENGTH_SHORT).show();
     }
 
@@ -342,7 +329,17 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void startMonitor(boolean toast){ getSharedPreferences("prefs",MODE_PRIVATE).edit().putBoolean("monitor",true).apply(); try{ Intent i=new Intent(this,WidgetMonitorService.class); if(Build.VERSION.SDK_INT>=26)startForegroundService(i); else startService(i); if(toast)Toast.makeText(this,"Background monitor running",Toast.LENGTH_SHORT).show(); }catch(Exception e){ if(toast)Toast.makeText(this,"Could not start monitor: "+e.getMessage(),Toast.LENGTH_LONG).show(); } refreshStatus(); }
+    private void requestUnrestrictedBattery(){
+        if (Build.VERSION.SDK_INT < 23) return;
+        SharedPreferences p = getSharedPreferences("prefs", MODE_PRIVATE);
+        if (p.getBoolean("asked_battery", false)) return;
+        try {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+            p.edit().putBoolean("asked_battery", true).apply();
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {}
+    }
 
     private void refreshStatus(){
         SharedPreferences p=getSharedPreferences("prefs",MODE_PRIVATE);
@@ -357,6 +354,6 @@ public class MainActivity extends Activity {
             when = ago < 5 ? "just now" : ago + "s ago";
         }
         if(batteryBig!=null)batteryBig.setText(pct<0?"—":pct+"%");
-        if(status!=null)status.setText("Live "+pct+"%  ·  refresh "+(WidgetRefresh.intervalMs(this)/1000)+"s\nMonitor: "+(mon?"RUNNING":"STOPPED")+"  ·  "+when+"\nSource: "+src);
+        if(status!=null)status.setText("Live "+pct+"%  ·  fetch every 5 min\nMonitor: ALWAYS ON  ·  "+when+"\nSource: "+src);
     }
 }

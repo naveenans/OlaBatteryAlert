@@ -18,10 +18,8 @@ public class WidgetMonitorService extends Service {
 
     private final Runnable scanner = new Runnable() {
         @Override public void run() {
-            WidgetRefresh.ping(WidgetMonitorService.this);
-            handler.postDelayed(() -> scanNow(), 450);
-            int base = WidgetRefresh.intervalMs(WidgetMonitorService.this);
-            handler.postDelayed(this, base);
+            cycle();
+            handler.postDelayed(this, WidgetRefresh.DEFAULT_MS);
         }
     };
 
@@ -29,7 +27,8 @@ public class WidgetMonitorService extends Service {
         super.onCreate();
         AlertEngine.ensureChannels(this);
         HostHolder.host(this);
-        startForeground(4104, monitorNotification("Live widget refresh running"));
+        startForeground(4104, monitorNotification("Background fetch every 5 minutes"));
+        WidgetRefresh.schedule(this);
         handler.post(scanner);
     }
 
@@ -39,12 +38,19 @@ public class WidgetMonitorService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, AlertEngine.CHANNEL_MONITOR)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
-                .setContentTitle("Battery Alert live")
+                .setContentTitle("Battery Alert")
                 .setContentText(text)
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .build();
+    }
+
+    private void cycle() {
+        WidgetRefresh.ping(this);
+        rebuildOverlay();
+        handler.postDelayed(this::scanNow, 900);
+        WidgetRefresh.schedule(this);
     }
 
     private BatteryWidgetHostView targetView() {
@@ -53,24 +59,28 @@ public class WidgetMonitorService extends Service {
         return overlayView;
     }
 
-    private void ensureOverlay() {
+    private void rebuildOverlay() {
         if (HostHolder.liveView() != null) {
             detachOverlay();
+            overlayView = null;
             return;
         }
-        if (overlayView != null && overlayAttached) return;
+        detachOverlay();
+        overlayView = null;
+        ensureOverlay();
+    }
+
+    private void ensureOverlay() {
         int id = getSharedPreferences("prefs", MODE_PRIVATE).getInt("widget_id", AppWidgetManager.INVALID_APPWIDGET_ID);
         if (id == AppWidgetManager.INVALID_APPWIDGET_ID) return;
         AppWidgetProviderInfo info = AppWidgetManager.getInstance(this).getAppWidgetInfo(id);
         if (info == null) return;
         BatteryWidgetHost host = HostHolder.host(this);
         try { AppWidgetManager.getInstance(this).updateAppWidgetOptions(id, widgetOptions()); } catch (Exception ignored) {}
-        if (overlayView == null) {
-            overlayView = (BatteryWidgetHostView) host.createView(this, id, info);
-            overlayView.setListener(pct -> {
-                if (pct != null) AlertEngine.process(this, pct, "widget-text");
-            });
-        }
+        overlayView = (BatteryWidgetHostView) host.createView(this, id, info);
+        overlayView.setListener(pct -> {
+            if (pct != null) AlertEngine.process(this, pct, "widget-text");
+        });
         int density = getResources().getDisplayMetrics().densityDpi;
         int w = Math.max(720, info.minWidth * density / 160);
         int h = Math.max(300, info.minHeight * density / 160);
@@ -78,7 +88,6 @@ public class WidgetMonitorService extends Service {
                 View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
         overlayView.layout(0, 0, w, h);
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
-        if (overlayAttached) return;
         try {
             windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
@@ -92,7 +101,7 @@ public class WidgetMonitorService extends Service {
             lp.gravity = Gravity.TOP | Gravity.START;
             lp.x = 0;
             lp.y = 0;
-            lp.alpha = 0.04f;
+            lp.alpha = 0.05f;
             windowManager.addView(overlayView, lp);
             overlayAttached = true;
         } catch (Throwable ignored) {}
@@ -110,8 +119,7 @@ public class WidgetMonitorService extends Service {
     }
 
     private void detachOverlay() {
-        if (!overlayAttached) return;
-        if (windowManager != null && overlayView != null) {
+        if (overlayAttached && windowManager != null && overlayView != null) {
             try { windowManager.removeView(overlayView); } catch (Throwable ignored) {}
         }
         overlayAttached = false;
@@ -124,32 +132,25 @@ public class WidgetMonitorService extends Service {
             view = targetView();
         }
         if (view == null) return;
-        try {
-            view.requestLayout();
-            view.invalidate();
-        } catch (Throwable ignored) {}
-        scanFusion(view);
-    }
-
-    private void scanFusion(BatteryWidgetHostView view) {
-        if (view == null || !scanBusy.compareAndSet(false, true)) return;
-        handler.postDelayed(() -> scanBusy.set(false), Math.max(2500, WidgetRefresh.intervalMs(this)));
+        try { view.requestLayout(); view.invalidate(); } catch (Throwable ignored) {}
+        if (!scanBusy.compareAndSet(false, true)) return;
+        handler.postDelayed(() -> scanBusy.set(false), 20000);
         ScanEngine.scan(view, new ScanEngine.Callback() {
             @Override public void onHit(int pct, String source, float confidence, String raw) {
                 scanBusy.set(false);
                 AlertEngine.process(WidgetMonitorService.this, pct, source + " · " + Math.round(confidence * 100) + "%");
                 try {
                     getSystemService(NotificationManager.class)
-                            .notify(4104, monitorNotification(pct + "% · " + source));
+                            .notify(4104, monitorNotification(pct + "% · next fetch in 5 min"));
                 } catch (Throwable ignored) {}
             }
-            @Override public void onMiss(String reason) {
-                scanBusy.set(false);
-            }
+            @Override public void onMiss(String reason) { scanBusy.set(false); }
         });
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        handler.removeCallbacks(scanner);
+        handler.post(scanner);
         return START_STICKY;
     }
 
@@ -157,6 +158,7 @@ public class WidgetMonitorService extends Service {
         handler.removeCallbacksAndMessages(null);
         detachOverlay();
         overlayView = null;
+        WidgetRefresh.schedule(this);
         super.onDestroy();
     }
 
