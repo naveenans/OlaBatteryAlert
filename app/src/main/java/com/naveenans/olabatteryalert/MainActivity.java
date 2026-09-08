@@ -23,6 +23,13 @@ public class MainActivity extends Activity {
     private SeekBar limitBar;
     private int pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
     private AppWidgetProviderInfo pendingInfo;
+    private final Handler live = new Handler(Looper.getMainLooper());
+    private final Runnable liveScan = new Runnable() {
+        @Override public void run() {
+            scanDisplayedWidget(false);
+            live.postDelayed(this, 1500);
+        }
+    };
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -39,11 +46,28 @@ public class MainActivity extends Activity {
         showBoundWidget();
         refreshStatus();
         if (getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("monitor", false)) startMonitor(false);
+        live.removeCallbacks(liveScan);
+        live.post(liveScan);
+        requestOverlayQuiet();
     }
 
     @Override protected void onStop() {
+        live.removeCallbacks(liveScan);
         try { host.stopListening(); } catch (Exception ignored) {}
         super.onStop();
+    }
+
+    private void requestOverlayQuiet() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
+    }
+
+    private void requestOverlay() {
+        try {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Exception e) {
+            Toast.makeText(this, "Open Settings → Display over other apps", Toast.LENGTH_LONG).show();
+        }
     }
 
     private int dp(int v){ return Math.round(v * getResources().getDisplayMetrics().density); }
@@ -58,7 +82,7 @@ public class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18),dp(24),dp(18),dp(30)); sv.addView(root);
 
         TextView title=text("⚡ OLA Battery Alert",28); title.setTypeface(null,1); root.addView(title);
-        TextView sub=text("Native Android widget picker • Reliable host binding • OCR fallback",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
+        TextView sub=text("Realtime widget host • ML Kit OCR fallback • 1.5s live scan",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
 
         LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL); hero.setPadding(dp(18),dp(16),dp(18),dp(16)); hero.setBackground(bg(Color.argb(205,11,18,34),24)); LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2); card.setMargins(0,dp(14),0,dp(10)); root.addView(hero,card);
         TextView small=text("LIVE BATTERY",12); small.setTextColor(Color.rgb(78,235,181)); hero.addView(small);
@@ -80,9 +104,10 @@ public class MainActivity extends Activity {
         Button monitor=button("▶ Start Background Monitor",Color.rgb(20,132,76)); monitor.setOnClickListener(v->startMonitor(true)); root.addView(monitor,buttonLp());
         Button stop=button("■ Stop Background Monitor",Color.rgb(163,58,78)); stop.setOnClickListener(v->{ getSharedPreferences("prefs",MODE_PRIVATE).edit().putBoolean("monitor",false).apply(); stopService(new Intent(this,WidgetMonitorService.class)); refreshStatus(); }); root.addView(stop,buttonLp());
         Button access=button("🔔 Enable OLA Notification Fallback",Color.rgb(151,82,187)); access.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))); root.addView(access,buttonLp());
+        Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v1.4: the primary flow now uses Android's own widget picker. This lets Android bind the exact widget instance first, then the app hosts that already-bound instance. Home-screen host category and screen-aware size options are also supplied before rendering.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v1.6: live 1.5s widget-text scan. If the Ola tile draws percent as pixels, ML Kit OCR runs on contrast + inverted + cropped frames. Allow display-over-apps so the host can render in the background.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -205,9 +230,22 @@ public class MainActivity extends Activity {
         }catch(Exception e){ widgetBox.addView(text("Widget host error: "+e.getClass().getSimpleName()+": "+e.getMessage(),13)); }
     }
 
-    private void scanDisplayedWidget(){ if(widgetBox.getChildCount()==0)return; View v=widgetBox.getChildAt(0); if(v instanceof BatteryWidgetHostView)scanWidgetView((BatteryWidgetHostView)v); else Toast.makeText(this,"No rendered widget to scan",Toast.LENGTH_SHORT).show(); }
-    private void scanWidgetView(BatteryWidgetHostView v){ Integer p=BatteryParser.fromView(v); if(p!=null){ AlertEngine.process(this,p,"OLA widget text"); refreshStatus(); } else scanOcr(v); }
-    private void scanOcr(BatteryWidgetHostView v){ WidgetOcrReader.scan(v,(pct,raw)->{ if(pct!=null)AlertEngine.process(this,pct,"OLA widget OCR"); refreshStatus(); }); }
+    private void scanDisplayedWidget(){ scanDisplayedWidget(true); }
+    private void scanDisplayedWidget(boolean toast){
+        if(widgetBox==null || widgetBox.getChildCount()==0){ if(toast) Toast.makeText(this,"No rendered widget to scan",Toast.LENGTH_SHORT).show(); return; }
+        View v=widgetBox.getChildAt(0);
+        if(v instanceof BatteryWidgetHostView) scanWidgetView((BatteryWidgetHostView)v);
+        else if(toast) Toast.makeText(this,"No rendered widget to scan",Toast.LENGTH_SHORT).show();
+    }
+    private void scanWidgetView(BatteryWidgetHostView v){
+        ScanEngine.scan(v, new ScanEngine.Callback() {
+            @Override public void onHit(int pct, String source, float confidence, String raw) {
+                AlertEngine.process(MainActivity.this, pct, source + " · " + Math.round(confidence * 100) + "%");
+                refreshStatus();
+            }
+            @Override public void onMiss(String reason) { refreshStatus(); }
+        });
+    }
 
     private void startMonitor(boolean toast){ getSharedPreferences("prefs",MODE_PRIVATE).edit().putBoolean("monitor",true).apply(); try{ Intent i=new Intent(this,WidgetMonitorService.class); if(Build.VERSION.SDK_INT>=26)startForegroundService(i); else startService(i); if(toast)Toast.makeText(this,"Background monitor running",Toast.LENGTH_SHORT).show(); }catch(Exception e){ if(toast)Toast.makeText(this,"Could not start monitor: "+e.getMessage(),Toast.LENGTH_LONG).show(); } refreshStatus(); }
 

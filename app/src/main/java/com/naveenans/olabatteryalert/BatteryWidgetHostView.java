@@ -9,8 +9,19 @@ public class BatteryWidgetHostView extends AppWidgetHostView {
     private Listener listener;
     public BatteryWidgetHostView(Context c) { super(c); }
     public void setListener(Listener l) { listener = l; }
+
     @Override public void updateAppWidget(RemoteViews remoteViews) {
         super.updateAppWidget(remoteViews);
-        postDelayed(() -> { if (listener != null) listener.onBattery(BatteryParser.fromView(this)); }, 350);
+        postDelayed(() -> {
+            if (listener == null) return;
+            ScanEngine.scan(this, new ScanEngine.Callback() {
+                @Override public void onHit(int pct, String source, float confidence, String raw) {
+                    listener.onBattery(pct);
+                }
+                @Override public void onMiss(String reason) {
+                    listener.onBattery(null);
+                }
+            });
+        }, 180);
     }
 }

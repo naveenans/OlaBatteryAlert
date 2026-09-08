@@ -29,7 +29,21 @@ public final class AlertEngine {
         SharedPreferences p = c.getSharedPreferences("prefs", Context.MODE_PRIVATE);
         int limit = p.getInt("limit", 80);
         int last = p.getInt("last_pct", -1);
-        p.edit().putInt("last_pct", pct).putLong("last_update", System.currentTimeMillis()).putString("last_source", source).apply();
+        int pending = p.getInt("pending_pct", -1);
+        int pendingN = p.getInt("pending_n", 0);
+        if (last >= 0 && Math.abs(pct - last) > 18) {
+            if (pending == pct) pendingN++;
+            else { pending = pct; pendingN = 1; }
+            p.edit().putInt("pending_pct", pending).putInt("pending_n", pendingN).apply();
+            if (pendingN < 2) return;
+        }
+        p.edit()
+                .putInt("last_pct", pct)
+                .putLong("last_update", System.currentTimeMillis())
+                .putString("last_source", source == null ? "" : source)
+                .putInt("pending_pct", -1)
+                .putInt("pending_n", 0)
+                .apply();
         if (pct >= limit && last < limit) sendLimitAlert(c, pct, limit, source);
     }
 

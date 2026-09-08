@@ -6,10 +6,6 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.Locale;
 
-/**
- * User-enabled fallback that reads only visible accessibility text from the OLA app
- * or common launcher surfaces. It does not capture passwords, credentials or hidden app data.
- */
 public class OlaAccessibilityReader extends AccessibilityService {
     private long lastScanAt = 0L;
 
@@ -20,7 +16,7 @@ public class OlaAccessibilityReader extends AccessibilityService {
         if (!isAllowedSurface(pkg)) return;
 
         long now = SystemClock.elapsedRealtime();
-        if (now - lastScanAt < 800L) return;
+        if (now - lastScanAt < 400L) return;
         lastScanAt = now;
 
         StringBuilder eventText = new StringBuilder();
@@ -29,9 +25,9 @@ public class OlaAccessibilityReader extends AccessibilityService {
         }
         CharSequence desc = event.getContentDescription();
         if (desc != null) eventText.append(desc).append(' ');
-        Integer pct = BatteryParser.fromText(eventText.toString());
-        if (pct != null) {
-            AlertEngine.process(this, pct, pkg.contains("launcher") ? "OLA widget accessibility" : "OLA app accessibility");
+        BatteryParser.Hit hit = BatteryParser.best(eventText.toString());
+        if (hit != null && hit.confidence >= 0.55f) {
+            AlertEngine.process(this, hit.pct, sourceLabel(pkg) + " · event");
             return;
         }
 
@@ -40,20 +36,27 @@ public class OlaAccessibilityReader extends AccessibilityService {
         StringBuilder all = new StringBuilder();
         collect(root, all, 0);
         try { root.recycle(); } catch (Exception ignored) {}
-        pct = BatteryParser.fromText(all.toString());
-        if (pct != null) {
-            AlertEngine.process(this, pct, pkg.contains("launcher") ? "OLA widget accessibility" : "OLA app accessibility");
+        hit = BatteryParser.best(all.toString());
+        if (hit != null) {
+            AlertEngine.process(this, hit.pct, sourceLabel(pkg) + " · tree");
         }
+    }
+
+    private String sourceLabel(String pkg) {
+        if (pkg.contains("ola")) return "ola-accessibility";
+        if (pkg.contains("launcher") || pkg.contains("systemui")) return "widget-accessibility";
+        return "screen-accessibility";
     }
 
     private boolean isAllowedSurface(String pkg) {
         if (pkg.contains("ola")) return true;
         return pkg.contains("launcher") || pkg.contains("oplus") || pkg.contains("coloros") ||
-                pkg.contains("oneplus") || pkg.contains("nexuslauncher") || pkg.contains("systemui");
+                pkg.contains("oneplus") || pkg.contains("nexuslauncher") || pkg.contains("systemui") ||
+                pkg.contains("nothing") || pkg.contains("pixel") || pkg.contains("miui") || pkg.contains("samsung");
     }
 
     private void collect(AccessibilityNodeInfo n, StringBuilder out, int depth) {
-        if (n == null || depth > 40 || out.length() > 12000) return;
+        if (n == null || depth > 50 || out.length() > 16000) return;
         CharSequence t = n.getText();
         if (t != null) out.append(t).append(' ');
         CharSequence d = n.getContentDescription();
