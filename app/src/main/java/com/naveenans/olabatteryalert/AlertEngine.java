@@ -44,6 +44,7 @@ public final class AlertEngine {
                 .putInt("pending_pct", -1)
                 .putInt("pending_n", 0)
                 .apply();
+        WidgetRefresh.notifyUi(c);
         if (pct >= limit && last < limit) sendLimitAlert(c, pct, limit, source);
     }
 

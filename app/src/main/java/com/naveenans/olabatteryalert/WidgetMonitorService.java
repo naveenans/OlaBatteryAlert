@@ -23,9 +23,12 @@ public class WidgetMonitorService extends Service {
 
     private final Runnable scanner = new Runnable() {
         @Override public void run() {
+            WidgetRefresh.ping(WidgetMonitorService.this);
             scanNow();
-            long delay = lastPct >= 0 && getSharedPreferences("prefs", MODE_PRIVATE).getInt("last_pct", -1) >= getSharedPreferences("prefs", MODE_PRIVATE).getInt("limit", 80) - 8
-                    ? SCAN_CHARGING_MS : SCAN_MS;
+            int base = WidgetRefresh.intervalMs(WidgetMonitorService.this);
+            int limit = getSharedPreferences("prefs", MODE_PRIVATE).getInt("limit", 80);
+            int pct = getSharedPreferences("prefs", MODE_PRIVATE).getInt("last_pct", -1);
+            long delay = (pct >= 0 && pct >= limit - 8) ? Math.min(base, SCAN_CHARGING_MS) : base;
             handler.postDelayed(this, delay);
         }
     };
@@ -121,6 +124,7 @@ public class WidgetMonitorService extends Service {
 
     private void scanFusion() {
         if (hostedView == null || !scanBusy.compareAndSet(false, true)) return;
+        handler.postDelayed(() -> scanBusy.set(false), 4000);
         ScanEngine.scan(hostedView, new ScanEngine.Callback() {
             @Override public void onHit(int pct, String source, float confidence, String raw) {
                 scanBusy.set(false);

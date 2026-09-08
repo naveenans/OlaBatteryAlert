@@ -26,8 +26,19 @@ public class MainActivity extends Activity {
     private final Handler live = new Handler(Looper.getMainLooper());
     private final Runnable liveScan = new Runnable() {
         @Override public void run() {
+            WidgetRefresh.ping(MainActivity.this);
             scanDisplayedWidget(false);
-            live.postDelayed(this, 1500);
+            refreshStatus();
+            live.postDelayed(this, WidgetRefresh.intervalMs(MainActivity.this));
+        }
+    };
+    private final BroadcastReceiver batteryRx = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { refreshStatus(); }
+    };
+    private final SharedPreferences.OnSharedPreferenceChangeListener prefListen = (prefs, key) -> {
+        if (key == null) return;
+        if (key.equals("last_pct") || key.equals("last_update") || key.equals("last_source") || key.equals("monitor")) {
+            runOnUiThread(MainActivity.this::refreshStatus);
         }
     };
 
@@ -36,8 +47,14 @@ public class MainActivity extends Activity {
         AlertEngine.ensureChannels(this);
         requestNotifications();
         host = new BatteryWidgetHost(this, HOST_ID);
+        getSharedPreferences("prefs", MODE_PRIVATE).registerOnSharedPreferenceChangeListener(prefListen);
         buildUi();
         refreshStatus();
+    }
+
+    @Override protected void onDestroy() {
+        try { getSharedPreferences("prefs", MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(prefListen); } catch (Exception ignored) {}
+        super.onDestroy();
     }
 
     @Override protected void onStart() {
@@ -49,11 +66,20 @@ public class MainActivity extends Activity {
         live.removeCallbacks(liveScan);
         live.post(liveScan);
         requestOverlayQuiet();
+        try {
+            IntentFilter f = new IntentFilter(WidgetRefresh.ACTION_UPDATED);
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(batteryRx, f, Context.RECEIVER_NOT_EXPORTED);
+            else registerReceiver(batteryRx, f);
+        } catch (Exception ignored) {}
     }
 
     @Override protected void onStop() {
         live.removeCallbacks(liveScan);
-        try { host.stopListening(); } catch (Exception ignored) {}
+        try { unregisterReceiver(batteryRx); } catch (Exception ignored) {}
+        boolean mon = getSharedPreferences("prefs", MODE_PRIVATE).getBoolean("monitor", false);
+        if (!mon) {
+            try { host.stopListening(); } catch (Exception ignored) {}
+        }
         super.onStop();
     }
 
@@ -78,14 +104,14 @@ public class MainActivity extends Activity {
 
     private void buildUi(){
         ScrollView sv=new ScrollView(this);
-        sv.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{Color.rgb(13,35,73),Color.rgb(72,27,117),Color.rgb(0,91,102)}));
+        sv.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR, themeBg()));
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18),dp(24),dp(18),dp(30)); sv.addView(root);
 
         TextView title=text("⚡ OLA Battery Alert",28); title.setTypeface(null,1); root.addView(title);
-        TextView sub=text("Realtime widget host • ML Kit OCR fallback • 1.5s live scan",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
+        TextView sub=text("Live dashboard refresh • OCR fallback • theme + interval",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
 
         LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL); hero.setPadding(dp(18),dp(16),dp(18),dp(16)); hero.setBackground(bg(Color.argb(205,11,18,34),24)); LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2); card.setMargins(0,dp(14),0,dp(10)); root.addView(hero,card);
-        TextView small=text("LIVE BATTERY",12); small.setTextColor(Color.rgb(78,235,181)); hero.addView(small);
+        TextView small=text("LIVE BATTERY",12); small.setTextColor(accent()); hero.addView(small);
         batteryBig=text("—",46); batteryBig.setTypeface(null,1); hero.addView(batteryBig);
         status=text("Select the OLA widget to begin.",13); status.setTextColor(Color.rgb(210,220,235)); hero.addView(status);
 
@@ -93,6 +119,47 @@ public class MainActivity extends Activity {
         limitText=text("",19); limitText.setTypeface(null,1); limitCard.addView(limitText);
         limitBar=new SeekBar(this); limitBar.setMax(40); int saved=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); limitBar.setProgress(saved-60); limitText.setText("Charge alarm at "+saved+"%"); limitCard.addView(limitBar);
         limitBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){ public void onProgressChanged(SeekBar s,int p,boolean f){ int x=60+p; limitText.setText("Charge alarm at "+x+"%"); getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("limit",x).apply(); } public void onStartTrackingTouch(SeekBar s){} public void onStopTrackingTouch(SeekBar s){} });
+
+        LinearLayout refreshCard=new LinearLayout(this); refreshCard.setOrientation(LinearLayout.VERTICAL); refreshCard.setPadding(dp(16),dp(12),dp(16),dp(12)); refreshCard.setBackground(bg(Color.argb(190,11,18,34),22)); root.addView(refreshCard,card);
+        int rms=WidgetRefresh.intervalMs(this);
+        TextView refreshTitle=text("Refresh every "+(rms/1000)+"s",19); refreshTitle.setTypeface(null,1); refreshCard.addView(refreshTitle);
+        LinearLayout row=new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
+        int[] secs=new int[]{1,2,5,10,15,30};
+        for(int sec: secs){
+            Button b=button(sec+"s", sec*1000==rms ? accent() : Color.rgb(40,52,70));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);
+            lp.setMargins(dp(2),dp(6),dp(2),0);
+            final int ms=sec*1000;
+            b.setOnClickListener(v->{
+                getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("refresh_ms", ms).apply();
+                refreshTitle.setText("Refresh every "+sec+"s");
+                live.removeCallbacks(liveScan);
+                live.post(liveScan);
+                startMonitor(false);
+            });
+            row.addView(b, lp);
+        }
+        refreshCard.addView(row);
+
+        LinearLayout themeCard=new LinearLayout(this); themeCard.setOrientation(LinearLayout.VERTICAL); themeCard.setPadding(dp(16),dp(12),dp(16),dp(12)); themeCard.setBackground(bg(Color.argb(190,11,18,34),22)); root.addView(themeCard,card);
+        TextView themeTitle=text("Theme",19); themeTitle.setTypeface(null,1); themeCard.addView(themeTitle);
+        LinearLayout trow=new LinearLayout(this); trow.setOrientation(LinearLayout.HORIZONTAL);
+        String cur=WidgetRefresh.theme(this);
+        String[] themes=new String[]{"neon","volt","ice"};
+        for(String name: themes){
+            Button b=button(name, name.equals(cur)? accent() : Color.rgb(40,52,70));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);
+            lp.setMargins(dp(2),dp(6),dp(2),0);
+            final String pick=name;
+            b.setOnClickListener(v->{
+                getSharedPreferences("prefs",MODE_PRIVATE).edit().putString("theme", pick).apply();
+                buildUi();
+                showBoundWidget();
+                refreshStatus();
+            });
+            trow.addView(b, lp);
+        }
+        themeCard.addView(trow);
 
         TextView wt=text("OLA widget preview",16); wt.setTypeface(null,1); root.addView(wt);
         widgetBox=new LinearLayout(this); widgetBox.setOrientation(LinearLayout.VERTICAL); widgetBox.setPadding(0,dp(8),0,dp(8)); root.addView(widgetBox);
@@ -107,8 +174,21 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v1.6: live 1.5s widget-text scan. If the Ola tile draws percent as pixels, ML Kit OCR runs on contrast + inverted + cropped frames. Allow display-over-apps so the host can render in the background.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v1.7: dashboard keeps live percent via widget ping + preference listener. Set refresh interval and theme below. Allow overlay for background OCR.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
+    }
+
+    private int[] themeBg(){
+        String t=WidgetRefresh.theme(this);
+        if("volt".equals(t)) return new int[]{Color.rgb(8,22,10),Color.rgb(36,62,8),Color.rgb(10,40,28)};
+        if("ice".equals(t)) return new int[]{Color.rgb(8,14,24),Color.rgb(16,36,64),Color.rgb(0,48,72)};
+        return new int[]{Color.rgb(13,35,73),Color.rgb(72,27,117),Color.rgb(0,91,102)};
+    }
+    private int accent(){
+        String t=WidgetRefresh.theme(this);
+        if("volt".equals(t)) return Color.rgb(198,245,74);
+        if("ice".equals(t)) return Color.rgb(168,216,255);
+        return Color.rgb(46,230,255);
     }
 
     private void requestNotifications(){ if(Build.VERSION.SDK_INT>=33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},900); }
