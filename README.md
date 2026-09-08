@@ -10,3 +10,6 @@ Realtime Ola widget reader with spatial ML Kit OCR fallback.
 Version 2.1 prioritizes a 0–100 number with a nearby `%` glyph, detects the
 green lightning icon beside it, and shows the live value in green while
 charging or blue while not charging.
+
+Version 2.2 keeps one bound widget host alive and retries after provider
+updates, preventing OCR from repeatedly reading an old cached widget frame.

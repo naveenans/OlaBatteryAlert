@@ -12,7 +12,8 @@ import android.os.Bundle;
 
 public final class WidgetRefresh {
     public static final String ACTION_UPDATED = "com.naveenans.olabatteryalert.BATTERY_UPDATED";
-    public static final int DEFAULT_MS = 5 * 60 * 1000;
+    public static final int DEFAULT_MS = 30 * 1000;
+    public static final int BACKUP_ALARM_MS = 5 * 60 * 1000;
     private WidgetRefresh() {}
 
     public static SharedPreferences prefs(Context c) {
@@ -79,7 +80,7 @@ public final class WidgetRefresh {
             if (am == null) return;
             Intent i = new Intent(c, RefreshAlarm.class);
             PendingIntent pi = PendingIntent.getBroadcast(c, 41, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            long at = System.currentTimeMillis() + DEFAULT_MS;
+            long at = System.currentTimeMillis() + BACKUP_ALARM_MS;
             if (Build.VERSION.SDK_INT >= 23) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
             else am.setExact(AlarmManager.RTC_WAKEUP, at, pi);
         } catch (Throwable ignored) {}

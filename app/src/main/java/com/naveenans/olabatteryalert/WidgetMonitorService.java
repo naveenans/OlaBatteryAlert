@@ -27,7 +27,7 @@ public class WidgetMonitorService extends Service {
         super.onCreate();
         AlertEngine.ensureChannels(this);
         HostHolder.host(this);
-        startForeground(4104, monitorNotification("Background fetch every 5 minutes"));
+        startForeground(4104, monitorNotification("Live widget monitor active"));
         WidgetRefresh.schedule(this);
         handler.post(scanner);
     }
@@ -47,9 +47,18 @@ public class WidgetMonitorService extends Service {
     }
 
     private void cycle() {
+        // Keep the same host view. Recreating it here makes AppWidgetHost immediately
+        // replay its cached RemoteViews (the source of the permanently stale value).
+        BatteryWidgetHostView live = HostHolder.liveView();
+        if (live != null && overlayView != null) {
+            detachOverlay();
+            overlayView = null;
+        }
+        if (targetView() == null) ensureOverlay();
         WidgetRefresh.ping(this);
-        rebuildOverlay();
-        handler.postDelayed(this::scanNow, 900);
+        handler.postDelayed(this::scanNow, 1800);
+        handler.postDelayed(this::scanNow, 5000);
+        handler.postDelayed(this::scanNow, 10000);
         WidgetRefresh.schedule(this);
     }
 
@@ -141,7 +150,7 @@ public class WidgetMonitorService extends Service {
                 AlertEngine.process(WidgetMonitorService.this, pct, charging, source + " · " + Math.round(confidence * 100) + "%");
                 try {
                     getSystemService(NotificationManager.class)
-                            .notify(4104, monitorNotification(pct + "% · " + (charging == null ? "charge state unknown" : charging ? "charging" : "not charging") + " · next fetch in 5 min"));
+                            .notify(4104, monitorNotification(pct + "% · " + (charging == null ? "charge state unknown" : charging ? "charging" : "not charging") + " · live refresh active"));
                 } catch (Throwable ignored) {}
             }
             @Override public void onMiss(String reason) { scanBusy.set(false); }

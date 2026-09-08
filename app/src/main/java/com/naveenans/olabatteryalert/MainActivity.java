@@ -29,7 +29,9 @@ public class MainActivity extends Activity {
             live.postDelayed(() -> {
                 scanDisplayedWidget(false);
                 refreshStatus();
-            }, 450);
+            }, 1800);
+            live.postDelayed(() -> scanDisplayedWidget(false), 5000);
+            live.postDelayed(() -> scanDisplayedWidget(false), 10000);
             live.postDelayed(this, WidgetRefresh.DEFAULT_MS);
         }
     };
@@ -116,7 +118,7 @@ public class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18),dp(24),dp(18),dp(30)); sv.addView(root);
 
         TextView title=text("⚡ OLA Battery Alert",28); title.setTypeface(null,1); root.addView(title);
-        TextView sub=text("Always-on monitor · live charge state · spatial OCR fallback",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
+        TextView sub=text("30-second refresh · live charge state · spatial OCR fallback",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
 
         LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL); hero.setPadding(dp(18),dp(16),dp(18),dp(16)); hero.setBackground(bg(Color.argb(205,11,18,34),24)); LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2); card.setMargins(0,dp(14),0,dp(10)); root.addView(hero,card);
         TextView small=text("LIVE BATTERY",12); small.setTextColor(accent()); hero.addView(small);
@@ -129,8 +131,8 @@ public class MainActivity extends Activity {
         limitBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){ public void onProgressChanged(SeekBar s,int p,boolean f){ int x=60+p; limitText.setText("Charge alarm at "+x+"%"); getSharedPreferences("prefs",MODE_PRIVATE).edit().putInt("limit",x).apply(); } public void onStartTrackingTouch(SeekBar s){} public void onStopTrackingTouch(SeekBar s){} });
 
         LinearLayout refreshCard=new LinearLayout(this); refreshCard.setOrientation(LinearLayout.VERTICAL); refreshCard.setPadding(dp(16),dp(12),dp(16),dp(12)); refreshCard.setBackground(bg(Color.argb(190,11,18,34),22)); root.addView(refreshCard,card);
-        TextView refreshTitle=text("Background fetch · every 5 minutes",19); refreshTitle.setTypeface(null,1); refreshCard.addView(refreshTitle);
-        TextView refreshHint=text("Always running. Exact alarm + foreground service keep reading the Ola widget even when this screen is closed.",13); refreshHint.setTextColor(Color.rgb(186,202,220)); refreshCard.addView(refreshHint);
+        TextView refreshTitle=text("Live widget refresh · every 30 seconds",19); refreshTitle.setTypeface(null,1); refreshCard.addView(refreshTitle);
+        TextView refreshHint=text("The same bound widget stays active so fresh OLA RemoteViews replace the cached image before OCR retries.",13); refreshHint.setTextColor(Color.rgb(186,202,220)); refreshCard.addView(refreshHint);
 
         LinearLayout themeCard=new LinearLayout(this); themeCard.setOrientation(LinearLayout.VERTICAL); themeCard.setPadding(dp(16),dp(12),dp(16),dp(12)); themeCard.setBackground(bg(Color.argb(190,11,18,34),22)); root.addView(themeCard,card);
         TextView themeTitle=text("Theme",19); themeTitle.setTypeface(null,1); themeCard.addView(themeTitle);
@@ -163,7 +165,7 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v2.1: OCR finds a number beside the % symbol and reads the nearby green lightning icon. Battery is green while charging and blue otherwise.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v2.2: fixes stale widget values by preserving one host view and retrying OCR after OLA delivers fresh RemoteViews.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -359,6 +361,6 @@ public class MainActivity extends Activity {
             batteryBig.setTextColor(chargingKnown && charging ? Color.rgb(34,197,94) : Color.rgb(46,139,255));
         }
         String chargeLabel = !chargingKnown ? "detecting charge state" : charging ? "CHARGING" : "NOT CHARGING";
-        if(status!=null)status.setText("Live "+(pct<0?"—":pct+"%")+"  ·  "+chargeLabel+"\nMonitor: ALWAYS ON  ·  "+when+"\nSource: "+src);
+        if(status!=null)status.setText("Live "+(pct<0?"—":pct+"%")+"  ·  "+chargeLabel+"\nMonitor: 30-SECOND REFRESH  ·  "+when+"\nSource: "+src);
     }
 }

@@ -7,11 +7,14 @@ import android.widget.RemoteViews;
 public class BatteryWidgetHostView extends AppWidgetHostView {
     public interface Listener { void onBattery(Integer pct); }
     private Listener listener;
+    private volatile long lastRemoteUpdateAt;
     public BatteryWidgetHostView(Context c) { super(c); }
     public void setListener(Listener l) { listener = l; }
+    public long lastRemoteUpdateAt() { return lastRemoteUpdateAt; }
 
     @Override public void updateAppWidget(RemoteViews remoteViews) {
         super.updateAppWidget(remoteViews);
+        lastRemoteUpdateAt = android.os.SystemClock.elapsedRealtime();
         postDelayed(() -> {
             if (listener == null) return;
             ScanEngine.scan(this, new ScanEngine.Callback() {
