@@ -165,7 +165,7 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v2.2: fixes stale widget values by preserving one host view and retrying OCR after OLA delivers fresh RemoteViews.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v2.3: reads only visible widget numbers paired with a nearby % symbol. Cached widget text is ignored.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -291,7 +291,7 @@ public class MainActivity extends Activity {
         try{ mgr.updateAppWidgetOptions(id,widgetOptions()); }catch(Exception ignored){}
         try{
             BatteryWidgetHostView v=(BatteryWidgetHostView)host.createView(this,id,info);
-            v.setListener(p->{ if(p!=null){ AlertEngine.process(this,p,"widget-text"); refreshStatus(); } });
+            v.setListener(p->{ if(p!=null){ AlertEngine.process(this,p,"widget-number-ocr"); refreshStatus(); } });
             HostHolder.setLiveView(v);
             int w=getResources().getDisplayMetrics().widthPixels-dp(36);
             int h=dp(210);

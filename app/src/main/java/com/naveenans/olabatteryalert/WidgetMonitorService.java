@@ -88,7 +88,7 @@ public class WidgetMonitorService extends Service {
         try { AppWidgetManager.getInstance(this).updateAppWidgetOptions(id, widgetOptions()); } catch (Exception ignored) {}
         overlayView = (BatteryWidgetHostView) host.createView(this, id, info);
         overlayView.setListener(pct -> {
-            if (pct != null) AlertEngine.process(this, pct, "widget-text");
+            if (pct != null) AlertEngine.process(this, pct, "widget-number-ocr");
         });
         int density = getResources().getDisplayMetrics().densityDpi;
         int w = Math.max(720, info.minWidth * density / 160);

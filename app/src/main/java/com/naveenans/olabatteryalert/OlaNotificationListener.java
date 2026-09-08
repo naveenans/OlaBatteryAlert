@@ -1,12 +1,15 @@
 package com.naveenans.olabatteryalert;
 
 import android.app.Notification;
+import android.appwidget.AppWidgetManager;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
 public class OlaNotificationListener extends NotificationListenerService {
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
+        if (getSharedPreferences("prefs", MODE_PRIVATE).getInt("widget_id", AppWidgetManager.INVALID_APPWIDGET_ID)
+                != AppWidgetManager.INVALID_APPWIDGET_ID) return;
         if (sbn == null) return;
         String pkg = sbn.getPackageName() == null ? "" : sbn.getPackageName().toLowerCase();
         if (!pkg.contains("ola") && !pkg.contains("electric")) return;

@@ -1,6 +1,7 @@
 package com.naveenans.olabatteryalert;
 
 import android.accessibilityservice.AccessibilityService;
+import android.appwidget.AppWidgetManager;
 import android.os.SystemClock;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -10,6 +11,8 @@ public class OlaAccessibilityReader extends AccessibilityService {
     private long lastScanAt = 0L;
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (getSharedPreferences("prefs", MODE_PRIVATE).getInt("widget_id", AppWidgetManager.INVALID_APPWIDGET_ID)
+                != AppWidgetManager.INVALID_APPWIDGET_ID) return;
         if (event == null) return;
         CharSequence pkgCs = event.getPackageName();
         String pkg = pkgCs == null ? "" : pkgCs.toString().toLowerCase(Locale.US);

@@ -114,15 +114,11 @@ public final class WidgetOcrReader {
     }
 
     private static BatteryParser.Hit pick(Text result, String full, Bitmap bitmap) {
-        BatteryParser.Hit best = BatteryParser.best(full);
-        if (result == null) return best;
+        BatteryParser.Hit best = null;
+        if (result == null) return null;
         try {
             for (Text.TextBlock block : result.getTextBlocks()) {
-                BatteryParser.Hit h = BatteryParser.best(block.getText());
-                if (h != null && (best == null || h.confidence > best.confidence)) best = boost(h, block);
                 for (Text.Line line : block.getLines()) {
-                    BatteryParser.Hit lh = BatteryParser.best(line.getText());
-                    if (lh != null && (best == null || lh.confidence > best.confidence)) best = boost(lh, block);
                     BatteryParser.Hit spatial = spatialPercent(line, bitmap);
                     if (spatial != null && (best == null || spatial.confidence > best.confidence)) best = spatial;
                 }

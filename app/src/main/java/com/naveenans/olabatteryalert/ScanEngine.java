@@ -17,23 +17,14 @@ public final class ScanEngine {
             view.requestLayout();
             view.invalidate();
         } catch (Throwable ignored) {}
-        String collected = BatteryParser.collectText(view);
-        BatteryParser.Hit textHit = BatteryParser.best(collected);
-        // Always OCR. Cached TextViews keep the first percent if we return early.
+        // OCR-only. Never use TextView/content-description values because a widget
+        // host can retain an old number there after its visible frame changes.
         WidgetOcrReader.scan(view, (ocrHit, raw) -> {
             if (ocrHit != null && ocrHit.confidence >= 0.50f) {
-                if (textHit != null && textHit.pct == ocrHit.pct) {
-                    cb.onHit(textHit.pct, ocrHit.charging, "widget-text+ocr", Math.max(textHit.confidence, ocrHit.confidence), collected);
-                } else {
-                    cb.onHit(ocrHit.pct, ocrHit.charging, "widget-ocr-spatial", ocrHit.confidence, raw);
-                }
+                cb.onHit(ocrHit.pct, ocrHit.charging, "widget-number-ocr", ocrHit.confidence, raw);
                 return;
             }
-            if (textHit != null) {
-                cb.onHit(textHit.pct, null, "widget-text", textHit.confidence, collected);
-                return;
-            }
-            cb.onMiss(raw == null || raw.isEmpty() ? "no-digits" : raw);
+            cb.onMiss(raw == null || raw.isEmpty() ? "no-number-with-percent" : raw);
         });
     }
 }

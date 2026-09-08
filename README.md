@@ -13,3 +13,7 @@ charging or blue while not charging.
 
 Version 2.2 keeps one bound widget host alive and retries after provider
 updates, preventing OCR from repeatedly reading an old cached widget frame.
+
+Version 2.3 is widget-number OCR only. It ignores widget text, content
+descriptions and other text fallbacks while a widget is bound, and accepts only
+a visible 0–100 number spatially paired with `%`.
