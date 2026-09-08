@@ -26,8 +26,10 @@ public class MainActivity extends Activity {
     private final Runnable liveScan = new Runnable() {
         @Override public void run() {
             WidgetRefresh.ping(MainActivity.this);
-            scanDisplayedWidget(false);
-            refreshStatus();
+            live.postDelayed(() -> {
+                scanDisplayedWidget(false);
+                refreshStatus();
+            }, 450);
             live.postDelayed(this, WidgetRefresh.intervalMs(MainActivity.this));
         }
     };
@@ -174,7 +176,7 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v1.8: dashboard re-reads the same live widget on your refresh interval. Theme and refresh time are below. Allow overlay so background OCR keeps working when you leave the app.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v1.9: each refresh nudges the Ola widget to rebuild, then OCR reads the new percent into this dashboard.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -332,6 +334,7 @@ public class MainActivity extends Activity {
         HostHolder.setLiveView(v);
         ScanEngine.scan(v, new ScanEngine.Callback() {
             @Override public void onHit(int pct, String source, float confidence, String raw) {
+                if (batteryBig != null) batteryBig.setText(pct + "%");
                 AlertEngine.process(MainActivity.this, pct, source + " · " + Math.round(confidence * 100) + "%");
                 refreshStatus();
             }

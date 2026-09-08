@@ -34,7 +34,7 @@ public final class AlertEngine {
         if (last >= 0 && Math.abs(pct - last) > 18) {
             if (pending == pct) pendingN++;
             else { pending = pct; pendingN = 1; }
-            p.edit().putInt("pending_pct", pending).putInt("pending_n", pendingN).apply();
+            p.edit().putInt("pending_pct", pending).putInt("pending_n", pendingN).commit();
             if (pendingN < 2) return;
         }
         p.edit()
@@ -43,7 +43,7 @@ public final class AlertEngine {
                 .putString("last_source", source == null ? "" : source)
                 .putInt("pending_pct", -1)
                 .putInt("pending_n", 0)
-                .apply();
+                .commit();
         WidgetRefresh.notifyUi(c);
         if (pct >= limit && last < limit) sendLimitAlert(c, pct, limit, source);
     }

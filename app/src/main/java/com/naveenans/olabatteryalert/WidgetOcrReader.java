@@ -27,14 +27,10 @@ public final class WidgetOcrReader {
         try {
             Bitmap src = capture(view);
             if (src == null) { callback.onResult(null, ""); return; }
-            List<Bitmap> passes = new ArrayList<>(3);
+            List<Bitmap> passes = new ArrayList<>(2);
             passes.add(src);
-            Bitmap contrast = enhance(src, false);
-            if (contrast != null) passes.add(contrast);
             Bitmap invert = enhance(src, true);
             if (invert != null) passes.add(invert);
-            Bitmap crop = cropRight(src);
-            if (crop != null) passes.add(crop);
             runPass(passes, 0, null, "", callback);
         } catch (Throwable t) {
             callback.onResult(null, "");

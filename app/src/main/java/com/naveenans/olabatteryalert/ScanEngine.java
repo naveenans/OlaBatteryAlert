@@ -13,20 +13,27 @@ public final class ScanEngine {
     public static void scan(View view, Callback cb) {
         if (cb == null) return;
         if (view == null) { cb.onMiss("no-view"); return; }
+        try {
+            view.requestLayout();
+            view.invalidate();
+        } catch (Throwable ignored) {}
         String collected = BatteryParser.collectText(view);
         BatteryParser.Hit textHit = BatteryParser.best(collected);
-        if (textHit != null && textHit.confidence >= 0.62f) {
-            cb.onHit(textHit.pct, "widget-text", textHit.confidence, collected);
-            return;
-        }
+        // Always OCR. Cached TextViews keep the first percent if we return early.
         WidgetOcrReader.scan(view, (ocrHit, raw) -> {
-            if (ocrHit != null) {
-                cb.onHit(ocrHit.pct, "widget-ocr", ocrHit.confidence, raw);
-            } else if (textHit != null) {
-                cb.onHit(textHit.pct, "widget-text", textHit.confidence, collected);
-            } else {
-                cb.onMiss(raw == null || raw.isEmpty() ? "no-digits" : raw);
+            if (ocrHit != null && ocrHit.confidence >= 0.50f) {
+                if (textHit != null && textHit.pct == ocrHit.pct) {
+                    cb.onHit(textHit.pct, "widget-text", Math.max(textHit.confidence, ocrHit.confidence), collected);
+                } else {
+                    cb.onHit(ocrHit.pct, "widget-ocr", ocrHit.confidence, raw);
+                }
+                return;
             }
+            if (textHit != null) {
+                cb.onHit(textHit.pct, "widget-text", textHit.confidence, collected);
+                return;
+            }
+            cb.onMiss(raw == null || raw.isEmpty() ? "no-digits" : raw);
         });
     }
 }

@@ -19,7 +19,7 @@ public class WidgetMonitorService extends Service {
     private final Runnable scanner = new Runnable() {
         @Override public void run() {
             WidgetRefresh.ping(WidgetMonitorService.this);
-            scanNow();
+            handler.postDelayed(() -> scanNow(), 450);
             int base = WidgetRefresh.intervalMs(WidgetMonitorService.this);
             handler.postDelayed(this, base);
         }
