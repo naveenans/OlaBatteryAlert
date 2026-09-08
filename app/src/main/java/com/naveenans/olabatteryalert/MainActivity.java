@@ -165,7 +165,7 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v2.3: reads only visible widget numbers paired with a nearby % symbol. Cached widget text is ignored.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v2.4: number-only OCR reads the large 0–100 value in the widget battery area even when ML Kit misses the thin % symbol.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 

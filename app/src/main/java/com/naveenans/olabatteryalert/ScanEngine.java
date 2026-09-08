@@ -24,7 +24,7 @@ public final class ScanEngine {
                 cb.onHit(ocrHit.pct, ocrHit.charging, "widget-number-ocr", ocrHit.confidence, raw);
                 return;
             }
-            cb.onMiss(raw == null || raw.isEmpty() ? "no-number-with-percent" : raw);
+            cb.onMiss(raw == null || raw.isEmpty() ? "no-upper-right-battery-number" : raw);
         });
     }
 }

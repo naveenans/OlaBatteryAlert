@@ -26,21 +26,22 @@ jobs:
           name: OlaBatteryAlert-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
       - name: Prepare release APK
-        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v2.3]')
+        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v2.4]')
         run: cp app/build/outputs/apk/debug/app-debug.apk OlaBatteryAlert.apk
-      - name: Publish v2.3 release
-        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v2.3]')
+      - name: Publish v2.4 release
+        if: github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release v2.4]')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.3
-          name: OLA Battery Alert v2.3
+          tag_name: v2.4
+          name: OLA Battery Alert v2.4
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           body: |
-            Widget-number OCR only release.
+            Reliable widget-number OCR release.
 
             - Ignores cached widget text and content descriptions
             - Accepts only a visible 0–100 number beside the % symbol
+            - Falls back to the large upper-right battery digits when ML Kit misses `%`
             - Preserves one widget host and retries after fresh OLA RemoteViews
             - Green percentage while charging; blue while not charging
           files: OlaBatteryAlert.apk

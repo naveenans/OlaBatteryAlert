@@ -121,9 +121,37 @@ public final class WidgetOcrReader {
                 for (Text.Line line : block.getLines()) {
                     BatteryParser.Hit spatial = spatialPercent(line, bitmap);
                     if (spatial != null && (best == null || spatial.confidence > best.confidence)) best = spatial;
+                    BatteryParser.Hit region = upperRightNumber(line, bitmap);
+                    if (region != null && (best == null || region.confidence > best.confidence)) best = region;
                 }
             }
         } catch (Throwable ignored) {}
+        return best;
+    }
+
+    // ML Kit frequently recognises the large battery digits but omits the thin '%'
+    // glyph. This fallback still reads numbers only: it selects the largest 0-100
+    // digit element in the upper-right battery area of the rendered OLA widget.
+    private static BatteryParser.Hit upperRightNumber(Text.Line line, Bitmap bitmap) {
+        if (line == null || bitmap == null) return null;
+        BatteryParser.Hit best = null;
+        int bestHeight = 0;
+        for (Text.Element element : line.getElements()) {
+            String digits = BatteryParser.normalize(element.getText());
+            if (!digits.matches("^(100|[0-9]{1,2})$")) continue;
+            Rect box = element.getBoundingBox();
+            if (box == null) continue;
+            float cx = box.centerX() / (float) Math.max(1, bitmap.getWidth());
+            float cy = box.centerY() / (float) Math.max(1, bitmap.getHeight());
+            float relativeHeight = box.height() / (float) Math.max(1, bitmap.getHeight());
+            if (cx < 0.48f || cy > 0.58f || relativeHeight < 0.045f) continue;
+            int pct;
+            try { pct = Integer.parseInt(digits); } catch (Exception ignored) { continue; }
+            if (box.height() <= bestHeight) continue;
+            bestHeight = box.height();
+            float score = Math.min(0.94f, 0.72f + relativeHeight * 1.4f + (cx > 0.62f ? 0.05f : 0f));
+            best = new BatteryParser.Hit(pct, score, line.getText(), detectCharging(bitmap, box));
+        }
         return best;
     }
 
