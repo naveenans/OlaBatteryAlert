@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
     };
     private final SharedPreferences.OnSharedPreferenceChangeListener prefListen = (prefs, key) -> {
         if (key == null) return;
-        if (key.equals("last_pct") || key.equals("last_update") || key.equals("last_source") || key.equals("monitor")) {
+        if (key.equals("last_pct") || key.equals("last_charging") || key.equals("charging_known") || key.equals("last_update") || key.equals("last_source") || key.equals("monitor")) {
             runOnUiThread(MainActivity.this::refreshStatus);
         }
     };
@@ -116,7 +116,7 @@ public class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18),dp(24),dp(18),dp(30)); sv.addView(root);
 
         TextView title=text("⚡ OLA Battery Alert",28); title.setTypeface(null,1); root.addView(title);
-        TextView sub=text("Always-on monitor · fetch every 5 minutes · advanced OCR",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
+        TextView sub=text("Always-on monitor · live charge state · spatial OCR fallback",14); sub.setTextColor(Color.rgb(202,220,245)); root.addView(sub);
 
         LinearLayout hero=new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL); hero.setPadding(dp(18),dp(16),dp(18),dp(16)); hero.setBackground(bg(Color.argb(205,11,18,34),24)); LinearLayout.LayoutParams card=new LinearLayout.LayoutParams(-1,-2); card.setMargins(0,dp(14),0,dp(10)); root.addView(hero,card);
         TextView small=text("LIVE BATTERY",12); small.setTextColor(accent()); hero.addView(small);
@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         Button overlay=button("⧉ Allow overlay (needed for background OCR)",Color.rgb(40,90,150)); overlay.setOnClickListener(v->requestOverlay()); root.addView(overlay,buttonLp());
         Button test=button("🚨 Test Burglar Alarm",Color.rgb(220,94,37)); test.setOnClickListener(v->{ int l=getSharedPreferences("prefs",MODE_PRIVATE).getInt("limit",80); AlertEngine.sendLimitAlert(this,l,l,"test"); }); root.addView(test,buttonLp());
 
-        TextView note=text("v2.0: background monitor always on. Data fetch every 5 minutes with multi-pass OCR (upsample, adaptive threshold, region vote).",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
+        TextView note=text("v2.1: OCR finds a number beside the % symbol and reads the nearby green lightning icon. Battery is green while charging and blue otherwise.",12); note.setTextColor(Color.rgb(192,207,229)); note.setPadding(0,dp(12),0,0); root.addView(note);
         setContentView(sv);
     }
 
@@ -274,7 +274,7 @@ public class MainActivity extends Activity {
     private void resetWidget(){
         int old=getSharedPreferences("prefs",MODE_PRIVATE).getInt("widget_id",AppWidgetManager.INVALID_APPWIDGET_ID);
         if(old!=AppWidgetManager.INVALID_APPWIDGET_ID)try{host.deleteAppWidgetId(old);}catch(Exception ignored){}
-        getSharedPreferences("prefs",MODE_PRIVATE).edit().remove("widget_id").remove("widget_pkg").remove("last_pct").remove("last_update").remove("last_source").apply();
+        getSharedPreferences("prefs",MODE_PRIVATE).edit().remove("widget_id").remove("widget_pkg").remove("last_pct").remove("last_charging").remove("charging_known").remove("last_update").remove("last_source").apply();
         showBoundWidget(); refreshStatus(); Toast.makeText(this,"Widget connection reset",Toast.LENGTH_SHORT).show();
     }
 
@@ -320,9 +320,8 @@ public class MainActivity extends Activity {
     private void scanWidgetView(BatteryWidgetHostView v){
         HostHolder.setLiveView(v);
         ScanEngine.scan(v, new ScanEngine.Callback() {
-            @Override public void onHit(int pct, String source, float confidence, String raw) {
-                if (batteryBig != null) batteryBig.setText(pct + "%");
-                AlertEngine.process(MainActivity.this, pct, source + " · " + Math.round(confidence * 100) + "%");
+            @Override public void onHit(int pct, Boolean charging, String source, float confidence, String raw) {
+                AlertEngine.process(MainActivity.this, pct, charging, source + " · " + Math.round(confidence * 100) + "%");
                 refreshStatus();
             }
             @Override public void onMiss(String reason) { refreshStatus(); }
@@ -347,13 +346,19 @@ public class MainActivity extends Activity {
         long t=p.getLong("last_update",0);
         String src=p.getString("last_source","none");
         boolean mon=p.getBoolean("monitor",false);
+        boolean chargingKnown=p.getBoolean("charging_known",false);
+        boolean charging=p.getBoolean("last_charging",false);
         String when;
         if (t==0) when="waiting for first scan";
         else {
             long ago = Math.max(0, (System.currentTimeMillis()-t)/1000);
             when = ago < 5 ? "just now" : ago + "s ago";
         }
-        if(batteryBig!=null)batteryBig.setText(pct<0?"—":pct+"%");
-        if(status!=null)status.setText("Live "+pct+"%  ·  fetch every 5 min\nMonitor: ALWAYS ON  ·  "+when+"\nSource: "+src);
+        if(batteryBig!=null){
+            batteryBig.setText(pct<0?"—":(charging?"⚡ ":"")+pct+"%");
+            batteryBig.setTextColor(chargingKnown && charging ? Color.rgb(34,197,94) : Color.rgb(46,139,255));
+        }
+        String chargeLabel = !chargingKnown ? "detecting charge state" : charging ? "CHARGING" : "NOT CHARGING";
+        if(status!=null)status.setText("Live "+(pct<0?"—":pct+"%")+"  ·  "+chargeLabel+"\nMonitor: ALWAYS ON  ·  "+when+"\nSource: "+src);
     }
 }

@@ -14,10 +14,15 @@ public final class BatteryParser {
         public final int pct;
         public final float confidence;
         public final String raw;
+        public final Boolean charging;
         public Hit(int pct, float confidence, String raw) {
+            this(pct, confidence, raw, null);
+        }
+        public Hit(int pct, float confidence, String raw, Boolean charging) {
             this.pct = pct;
             this.confidence = confidence;
             this.raw = raw;
+            this.charging = charging;
         }
     }
 

@@ -4,7 +4,7 @@ import android.view.View;
 
 public final class ScanEngine {
     public interface Callback {
-        void onHit(int pct, String source, float confidence, String raw);
+        void onHit(int pct, Boolean charging, String source, float confidence, String raw);
         void onMiss(String reason);
     }
 
@@ -23,14 +23,14 @@ public final class ScanEngine {
         WidgetOcrReader.scan(view, (ocrHit, raw) -> {
             if (ocrHit != null && ocrHit.confidence >= 0.50f) {
                 if (textHit != null && textHit.pct == ocrHit.pct) {
-                    cb.onHit(textHit.pct, "widget-text", Math.max(textHit.confidence, ocrHit.confidence), collected);
+                    cb.onHit(textHit.pct, ocrHit.charging, "widget-text+ocr", Math.max(textHit.confidence, ocrHit.confidence), collected);
                 } else {
-                    cb.onHit(ocrHit.pct, "widget-ocr", ocrHit.confidence, raw);
+                    cb.onHit(ocrHit.pct, ocrHit.charging, "widget-ocr-spatial", ocrHit.confidence, raw);
                 }
                 return;
             }
             if (textHit != null) {
-                cb.onHit(textHit.pct, "widget-text", textHit.confidence, collected);
+                cb.onHit(textHit.pct, null, "widget-text", textHit.confidence, collected);
                 return;
             }
             cb.onMiss(raw == null || raw.isEmpty() ? "no-digits" : raw);

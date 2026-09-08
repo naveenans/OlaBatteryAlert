@@ -15,7 +15,7 @@ public class BatteryWidgetHostView extends AppWidgetHostView {
         postDelayed(() -> {
             if (listener == null) return;
             ScanEngine.scan(this, new ScanEngine.Callback() {
-                @Override public void onHit(int pct, String source, float confidence, String raw) {
+                @Override public void onHit(int pct, Boolean charging, String source, float confidence, String raw) {
                     listener.onBattery(pct);
                 }
                 @Override public void onMiss(String reason) {

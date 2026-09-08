@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.view.View;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
@@ -67,7 +68,7 @@ public final class WidgetOcrReader {
                             if (raw.length() > 0) raw.append(" | ");
                             raw.append(text);
                         }
-                        BatteryParser.Hit hit = pick(result, text);
+                        BatteryParser.Hit hit = pick(result, text, bmp);
                         if (hit != null) hits.add(hit);
                         runPass(passes, i + 1, hits, raw, cb);
                     })
@@ -82,10 +83,14 @@ public final class WidgetOcrReader {
         Map<Integer, Integer> n = new HashMap<>();
         Map<Integer, Float> conf = new HashMap<>();
         Map<Integer, String> raw = new HashMap<>();
+        Map<Integer, Integer> charging = new HashMap<>();
+        Map<Integer, Integer> notCharging = new HashMap<>();
         for (BatteryParser.Hit h : hits) {
             n.put(h.pct, n.getOrDefault(h.pct, 0) + 1);
             conf.put(h.pct, Math.max(conf.getOrDefault(h.pct, 0f), h.confidence));
             raw.put(h.pct, h.raw);
+            if (Boolean.TRUE.equals(h.charging)) charging.put(h.pct, charging.getOrDefault(h.pct, 0) + 1);
+            else if (Boolean.FALSE.equals(h.charging)) notCharging.put(h.pct, notCharging.getOrDefault(h.pct, 0) + 1);
         }
         int bestPct = -1;
         int bestN = 0;
@@ -100,10 +105,15 @@ public final class WidgetOcrReader {
         }
         if (bestPct < 0) return null;
         float score = Math.min(0.99f, bestC + (bestN >= 3 ? 0.12f : bestN >= 2 ? 0.06f : 0f));
-        return new BatteryParser.Hit(bestPct, score, raw.get(bestPct));
+        Boolean state = null;
+        int yes = charging.getOrDefault(bestPct, 0);
+        int no = notCharging.getOrDefault(bestPct, 0);
+        if (yes > 0) state = true;
+        else if (no > 0) state = false;
+        return new BatteryParser.Hit(bestPct, score, raw.get(bestPct), state);
     }
 
-    private static BatteryParser.Hit pick(Text result, String full) {
+    private static BatteryParser.Hit pick(Text result, String full, Bitmap bitmap) {
         BatteryParser.Hit best = BatteryParser.best(full);
         if (result == null) return best;
         try {
@@ -113,17 +123,74 @@ public final class WidgetOcrReader {
                 for (Text.Line line : block.getLines()) {
                     BatteryParser.Hit lh = BatteryParser.best(line.getText());
                     if (lh != null && (best == null || lh.confidence > best.confidence)) best = boost(lh, block);
+                    BatteryParser.Hit spatial = spatialPercent(line, bitmap);
+                    if (spatial != null && (best == null || spatial.confidence > best.confidence)) best = spatial;
                 }
             }
         } catch (Throwable ignored) {}
         return best;
     }
 
+    // Strong fallback for the OLA widget: accept a number only when a percent glyph is
+    // in the same OCR element or immediately to its right on the same visual line.
+    private static BatteryParser.Hit spatialPercent(Text.Line line, Bitmap bitmap) {
+        if (line == null) return null;
+        List<Text.Element> elements = line.getElements();
+        for (int i = 0; i < elements.size(); i++) {
+            Text.Element number = elements.get(i);
+            String nt = BatteryParser.normalize(number.getText());
+            BatteryParser.Hit same = BatteryParser.best(nt);
+            Rect nb = number.getBoundingBox();
+            if (same != null && nt.contains("%") && nb != null) {
+                return new BatteryParser.Hit(same.pct, 0.99f, line.getText(), detectCharging(bitmap, nb));
+            }
+            if (!nt.matches("^(100|[0-9]{1,2})$") || nb == null) continue;
+            for (int j = i + 1; j < Math.min(elements.size(), i + 3); j++) {
+                Text.Element percent = elements.get(j);
+                String pt = BatteryParser.normalize(percent.getText()).toLowerCase(java.util.Locale.US);
+                Rect pb = percent.getBoundingBox();
+                if (pb == null || !(pt.contains("%") || pt.contains("percent") || pt.equals("pct"))) continue;
+                int height = Math.max(nb.height(), pb.height());
+                int gap = pb.left - nb.right;
+                int vertical = Math.abs(pb.centerY() - nb.centerY());
+                if (gap < -height / 2 || gap > height * 2 || vertical > height) continue;
+                int pct;
+                try { pct = Integer.parseInt(nt); } catch (Exception ignored) { continue; }
+                Rect pair = new Rect(Math.min(nb.left, pb.left), Math.min(nb.top, pb.top),
+                        Math.max(nb.right, pb.right), Math.max(nb.bottom, pb.bottom));
+                return new BatteryParser.Hit(pct, 0.99f, line.getText(), detectCharging(bitmap, pair));
+            }
+        }
+        return null;
+    }
+
+    // The charging bolt in the supplied OLA widget is a saturated green shape directly
+    // left of the percentage. A ratio threshold rejects the scooter glow further below.
+    private static Boolean detectCharging(Bitmap bitmap, Rect percentBox) {
+        if (bitmap == null || percentBox == null) return null;
+        int h = Math.max(12, percentBox.height());
+        int left = Math.max(0, percentBox.left - Math.round(h * 2.4f));
+        int right = Math.max(left + 1, Math.min(bitmap.getWidth(), percentBox.left + h / 5));
+        int top = Math.max(0, percentBox.top - h / 2);
+        int bottom = Math.min(bitmap.getHeight(), percentBox.bottom + h / 2);
+        int green = 0, sampled = 0;
+        for (int y = top; y < bottom; y += 2) {
+            for (int x = left; x < right; x += 2) {
+                int c = bitmap.getPixel(x, y);
+                int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+                sampled++;
+                if (g >= 85 && g > r * 1.35f && g > b * 1.12f && g - Math.max(r, b) >= 28) green++;
+            }
+        }
+        if (sampled == 0) return null;
+        return green >= Math.max(8, sampled / 120);
+    }
+
     private static BatteryParser.Hit boost(BatteryParser.Hit hit, Text.TextBlock block) {
         if (hit == null || block == null || block.getBoundingBox() == null) return hit;
         int h = block.getBoundingBox().height();
         float extra = h >= 56 ? 0.10f : h >= 32 ? 0.05f : 0f;
-        return extra == 0f ? hit : new BatteryParser.Hit(hit.pct, Math.min(0.99f, hit.confidence + extra), hit.raw);
+        return extra == 0f ? hit : new BatteryParser.Hit(hit.pct, Math.min(0.99f, hit.confidence + extra), hit.raw, hit.charging);
     }
 
     private static Bitmap capture(View view) {

@@ -136,12 +136,12 @@ public class WidgetMonitorService extends Service {
         if (!scanBusy.compareAndSet(false, true)) return;
         handler.postDelayed(() -> scanBusy.set(false), 20000);
         ScanEngine.scan(view, new ScanEngine.Callback() {
-            @Override public void onHit(int pct, String source, float confidence, String raw) {
+            @Override public void onHit(int pct, Boolean charging, String source, float confidence, String raw) {
                 scanBusy.set(false);
-                AlertEngine.process(WidgetMonitorService.this, pct, source + " · " + Math.round(confidence * 100) + "%");
+                AlertEngine.process(WidgetMonitorService.this, pct, charging, source + " · " + Math.round(confidence * 100) + "%");
                 try {
                     getSystemService(NotificationManager.class)
-                            .notify(4104, monitorNotification(pct + "% · next fetch in 5 min"));
+                            .notify(4104, monitorNotification(pct + "% · " + (charging == null ? "charge state unknown" : charging ? "charging" : "not charging") + " · next fetch in 5 min"));
                 } catch (Throwable ignored) {}
             }
             @Override public void onMiss(String reason) { scanBusy.set(false); }

@@ -1,8 +1,12 @@
 # OLA Battery Alert
 
-Realtime Ola widget reader with ML Kit OCR fallback.
+Realtime Ola widget reader with spatial ML Kit OCR fallback.
 
 1. Select the Ola battery widget
 2. Allow overlay + notifications
 3. Start background monitor
 4. Alarm fires at your charge limit
+
+Version 2.1 prioritizes a 0–100 number with a nearby `%` glyph, detects the
+green lightning icon beside it, and shows the live value in green while
+charging or blue while not charging.
